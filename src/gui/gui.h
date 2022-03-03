@@ -18,6 +18,14 @@
  */
 
 #include "../engine/engine.h"
+#include "task_queue.h"
+
+#ifdef HAVE_NETWORKING
+#include "net/server.h"
+#include "net/client.h"
+#include "net/session_options.h"
+#endif
+
 #include "imgui.h"
 #include "imgui_impl_sdl.h"
 #include "imgui_impl_sdlrenderer.h"
@@ -26,6 +34,7 @@
 #include <initializer_list>
 #include <map>
 #include <vector>
+#include <optional>
 
 #define rightClickable if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::SetKeyboardFocusHere(-1);
 
@@ -134,7 +143,8 @@ enum FurnaceGUIWindows {
   GUI_WINDOW_PIANO,
   GUI_WINDOW_NOTES,
   GUI_WINDOW_CHANNELS,
-  GUI_WINDOW_REGISTER_VIEW
+  GUI_WINDOW_REGISTER_VIEW,
+  GUI_WINDOW_NET,
 };
 
 enum FurnaceGUIFileDialogs {
@@ -219,6 +229,7 @@ enum FurnaceGUIActions {
   GUI_ACTION_WINDOW_NOTES,
   GUI_ACTION_WINDOW_CHANNELS,
   GUI_ACTION_WINDOW_REGISTER_VIEW,
+  GUI_ACTION_WINDOW_NET,
 
   GUI_ACTION_COLLAPSE_WINDOW,
   GUI_ACTION_CLOSE_WINDOW,
@@ -660,6 +671,19 @@ class FurnaceGUI {
   float keyHit[DIV_MAX_CHANS];
   int lastIns[DIV_MAX_CHANS];
 
+  TaskQueue taskQueue;
+
+#ifdef HAVE_NETWORKING
+  /**
+   * @brief Whether the networking session window is open
+   */
+  bool netOpen;
+  NetSessionOptions sessionOptions;
+
+  std::optional<NetServer> server;
+  std::optional<NetClient> client;
+#endif
+
   void drawAlgorithm(unsigned char alg, FurnaceGUIFMAlgs algType, const ImVec2& size);
   void drawFMEnv(unsigned char tl, unsigned char ar, unsigned char dr, unsigned char d2r, unsigned char rr, unsigned char sl, float maxTl, float maxArDr, const ImVec2& size);
 
@@ -691,6 +715,10 @@ class FurnaceGUI {
   void drawSettings();
   void drawDebug();
   void drawNewSong();
+
+#ifdef HAVE_NETWORKING
+  void drawNet();
+#endif
 
   void parseKeybinds();
   void promptKey(int which);
@@ -755,6 +783,7 @@ class FurnaceGUI {
     const char* noteName(short note, short octave);
     bool decodeNote(const char* what, short& note, short& octave);
     void bindEngine(DivEngine* eng);
+    DivEngine* getEngine();
     void updateScroll(int amount);
     void addScroll(int amount);
     void setFileName(String name);
@@ -762,4 +791,12 @@ class FurnaceGUI {
     bool finish();
     bool init();
     FurnaceGUI();
+
+    /**
+     * @brief Run a task on the GUI thread and return a future for it
+     */
+    template<typename R, typename F>
+    std::future<R> runOnGuiThread(F&& task) {
+      return taskQueue.enqueue<R, F>(std::forward<F>(task));
+    }
 };

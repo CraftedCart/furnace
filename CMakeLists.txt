@@ -10,7 +10,7 @@ if (APPLE)
   enable_language(OBJC)
 endif()
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_PROJECT_VERSION_MAJOR 0)
 set(CMAKE_PROJECT_VERSION_MINOR 5)
@@ -36,6 +36,7 @@ endif()
 
 option(BUILD_GUI "Build the tracker (disable to build only a headless player)" ${BUILD_GUI_DEFAULT})
 option(USE_RTMIDI "Build with MIDI support using RtMidi. Currently unfinished." ${USE_RTMIDI_DEFAULT})
+option(USE_NETWORKING "Whether multi-user networked editing should be supported in the GUI. Requires BUILD_GUI to be ON" ON)
 option(WITH_JACK "Whether to build with JACK support. Auto-detects if JACK is available" ${WITH_JACK_DEFAULT})
 option(SYSTEM_FMT "Use a system-installed version of fmt instead of the vendored one" OFF)
 option(SYSTEM_LIBSNDFILE "Use a system-installed version of libsndfile instead of the vendored one" OFF)
@@ -203,6 +204,12 @@ else()
   message(STATUS "Building without RtMidi")
 endif()
 
+if (USE_NETWORKING AND BUILD_GUI)
+  add_subdirectory(extern/rpclib EXCLUDE_FROM_ALL)
+  list(APPEND DEPENDENCIES_LIBRARIES rpc)
+  list(APPEND DEPENDENCIES_DEFINES HAVE_NETWORKING)
+endif()
+
 set(ENGINE_SOURCES
 src/log.cpp
 src/fileutils.cpp
@@ -351,6 +358,13 @@ src/gui/pattern.cpp
 src/gui/settings.cpp
 src/gui/util.cpp
 src/gui/gui.cpp
+
+src/gui/task_queue.cpp
+)
+
+set(NETWORKING_SOURCES
+src/gui/net/server.cpp
+src/gui/net/client.cpp
 )
 
 if (APPLE)
@@ -374,6 +388,13 @@ if (BUILD_GUI)
   )
   list(APPEND DEPENDENCIES_DEFINES HAVE_GUI)
   message(STATUS "Building GUI")
+
+  if (USE_NETWORKING)
+    list(APPEND USED_SOURCES ${NETWORKING_SOURCES})
+    message(STATUS "Building with networking")
+  else()
+    message(STATUS "Building without networking")
+  endif()
 else()
   message(STATUS "Building headless")
 endif()

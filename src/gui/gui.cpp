@@ -72,6 +72,10 @@ void FurnaceGUI::bindEngine(DivEngine* eng) {
   e=eng;
 }
 
+DivEngine* FurnaceGUI::getEngine() {
+  return e;
+}
+
 const char* noteNameNormal(short note, short octave) {
   if (note==100) { // note cut
     return "OFF";
@@ -2016,6 +2020,68 @@ void FurnaceGUI::drawNewSong() {
   }
 }
 
+#ifdef HAVE_NETWORKING
+void FurnaceGUI::drawNet() {
+  if (nextWindow==GUI_WINDOW_NET) {
+    sampleEditOpen=true;
+    ImGui::SetNextWindowFocus();
+    nextWindow=GUI_WINDOW_NOTHING;
+  }
+  if (!netOpen) return;
+  if (ImGui::Begin("Net Session",&netOpen)) {
+    if (server.has_value()) {
+      // We're hosting
+      ImGui::Text("Hosting session");
+    } else if (client.has_value()) {
+      // We're connected to a session
+      ImGui::Text("Joined session (%s)", client->getConnectionStateStr());
+    } else {
+      // We're not in a session - offer to host or connect
+
+      ImGui::Text("Host");
+
+      ImGui::InputInt("Port", &sessionOptions.host.port);
+      // Clamp port to the uint16 range
+      if (sessionOptions.host.port < 0) {
+        sessionOptions.host.port = 0;
+      } else if (sessionOptions.host.port > 65535) {
+        sessionOptions.host.port = 65535;
+      }
+
+      if (ImGui::Button("Host")) {
+        assert(!server.has_value() && "Hosting server yet a server has already been created?");
+
+        server.emplace(this, sessionOptions.host.port);
+        server->start();
+      }
+
+      ImGui::Separator();
+
+      ImGui::Text("Connect");
+
+      ImGui::InputText("Address", &sessionOptions.connect.address);
+
+      ImGui::InputInt("Port", &sessionOptions.host.port);
+      // Clamp port to the uint16 range
+      if (sessionOptions.connect.port < 0) {
+        sessionOptions.connect.port = 0;
+      } else if (sessionOptions.connect.port > 65535) {
+        sessionOptions.connect.port = 65535;
+      }
+
+      if (ImGui::Button("Connect")) {
+        assert(!client.has_value() && "Connecting yet a client has already been created?");
+
+        client.emplace(this, sessionOptions.connect.address, sessionOptions.connect.port);
+        client->downloadFileAsync();
+      }
+    }
+  }
+  if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows)) curWindow=GUI_WINDOW_NET;
+  ImGui::End();
+}
+#endif
+
 void FurnaceGUI::drawStats() {
   if (nextWindow==GUI_WINDOW_STATS) {
     statsOpen=true;
@@ -3354,6 +3420,11 @@ void FurnaceGUI::doAction(int what) {
         case GUI_WINDOW_REGISTER_VIEW:
           regViewOpen=false;
           break;
+#ifdef HAVE_NETWORKING
+        case GUI_WINDOW_NET:
+          netOpen=false;
+          break;
+#endif
         default:
           break;
       }
@@ -4522,7 +4593,10 @@ bool FurnaceGUI::loop() {
           break;
       }
     }
-    
+
+    // Run all outstanding tasks on the GUI thread
+    taskQueue.processTasks();
+
     ImGui_ImplSDLRenderer_NewFrame();
     ImGui_ImplSDL2_NewFrame(sdlWin);
     ImGui::NewFrame();
@@ -5011,6 +5085,10 @@ bool FurnaceGUI::loop() {
         ImGui::EndMenu();
       }
       ImGui::Separator();
+      if (ImGui::MenuItem("net session...",BIND_FOR(GUI_ACTION_WINDOW_NET))) {
+        netOpen=true;
+      }
+      ImGui::Separator();
       if (ImGui::MenuItem("exit")) {
         if (modified) {
           showWarning("Unsaved changes! Are you sure you want to quit?",GUI_WARN_QUIT);
@@ -5173,6 +5251,9 @@ bool FurnaceGUI::loop() {
     drawNotes();
     drawChannels();
     drawRegView();
+#ifdef HAVE_NETWORKING
+    drawNet();
+#endif
 
     if (ImGuiFileDialog::Instance()->Display("FileDialog",ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoMove,ImVec2(600.0f*dpiScale,400.0f*dpiScale),ImVec2(scrW*dpiScale,scrH*dpiScale))) {
       //ImGui::GetIO().ConfigFlags&=~ImGuiConfigFlags_NavEnableKeyboard;
