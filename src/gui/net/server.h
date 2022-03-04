@@ -20,6 +20,7 @@
 #ifndef _GUI_NET_SERVER_H
 #define _GUI_NET_SERVER_H
 
+#include <msgpack.hpp>
 #include <zmq.hpp>
 #include <thread>
 #include <vector>
@@ -28,6 +29,7 @@
 
 // Forward declarations
 class FurnaceGUI;
+struct UndoAction;
 
 class NetServer {
   private:
@@ -56,6 +58,8 @@ class NetServer {
      * @brief Download the file from the server
      */
     std::vector<uint8_t> rpcGetFile();
+
+    msgpack::type::nil_t rpcDoAction(const UndoAction& action);
 
   private:
     void runThread(uint16_t port);

@@ -25,6 +25,7 @@
 #include "net/client.h"
 #include "net/session_options.h"
 #endif
+#include "net/serialize.h" // Does not need to be in ifdef
 
 #include "imgui.h"
 #include "imgui_impl_sdl.h"
@@ -359,18 +360,23 @@ struct SelectionPoint {
 };
 
 enum ActionType {
-  GUI_UNDO_CHANGE_ORDER,
-  GUI_UNDO_PATTERN_EDIT,
-  GUI_UNDO_PATTERN_DELETE,
-  GUI_UNDO_PATTERN_PULL,
-  GUI_UNDO_PATTERN_PUSH,
-  GUI_UNDO_PATTERN_CUT,
-  GUI_UNDO_PATTERN_PASTE
+  GUI_UNDO_CHANGE_ORDER = 0,
+  GUI_UNDO_PATTERN_EDIT = 1,
+  GUI_UNDO_PATTERN_DELETE = 2,
+  GUI_UNDO_PATTERN_PULL = 3,
+  GUI_UNDO_PATTERN_PUSH = 4,
+  GUI_UNDO_PATTERN_CUT = 5,
+  GUI_UNDO_PATTERN_PASTE = 6
 };
+FURNACE_NET_ENUM_SERIALIZABLE(ActionType);
 
 struct UndoPatternData {
   int chan, pat, row, col;
   short oldVal, newVal;
+
+  /** Need a default constructor for serialization */
+  UndoPatternData() = default;
+
   UndoPatternData(int c, int p, int r, int co, short v1, short v2):
     chan(c),
     pat(p),
@@ -378,27 +384,51 @@ struct UndoPatternData {
     col(co),
     oldVal(v1),
     newVal(v2) {}
+
+  FURNACE_NET_STRUCT_SERIALIZABLE(chan, pat, row, col, oldVal, newVal);
 };
 
 struct UndoOrderData {
   int chan, ord;
   unsigned char oldVal, newVal;
+
+  /** Need a default constructor for serialization */
+  UndoOrderData() = default;
+
   UndoOrderData(int c, int o, unsigned char v1, unsigned char v2):
     chan(c),
     ord(o),
     oldVal(v1),
     newVal(v2) {}
+
+  FURNACE_NET_STRUCT_SERIALIZABLE(chan, ord, oldVal, newVal);
 };
 
-struct UndoStep {
+/**
+ * @brief Actual data to perform an undo/redo
+ */
+struct UndoAction {
   ActionType type;
-  SelectionPoint cursor, selStart, selEnd;
-  int order;
-  bool nibble;
   int oldOrdersLen, newOrdersLen;
   int oldPatLen, newPatLen;
   std::vector<UndoOrderData> ord;
   std::vector<UndoPatternData> pat;
+
+  FURNACE_NET_STRUCT_SERIALIZABLE(type, oldOrdersLen, newOrdersLen, oldPatLen, newPatLen, ord, pat);
+};
+
+/**
+ * @brief Cursor and order positioning for an undo step
+ */
+struct UndoPosition {
+  SelectionPoint cursor, selStart, selEnd;
+  int order;
+  bool nibble;
+};
+
+struct UndoStep {
+  UndoAction action;
+  UndoPosition position;
 };
 
 struct Particle {
@@ -791,6 +821,16 @@ class FurnaceGUI {
     bool finish();
     bool init();
     FurnaceGUI();
+
+    /**
+     * @brief Executes an action
+     *
+     * Does not add it to the undo/redo stack
+     *
+     * This is public so actions can be executed from a network session - still need to figure out how to handle
+     * undo/redo for that...
+     */
+    void doRedoAction(const UndoAction& action);
 
     /**
      * @brief Run a task on the GUI thread and return a future for it

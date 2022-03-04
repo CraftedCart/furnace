@@ -21,7 +21,6 @@
 #include "common.h"
 #include "../gui.h"
 #include "../../ta-log.h"
-#include <msgpack.hpp>
 #include <type_traits>
 
 /**
@@ -37,10 +36,10 @@ struct MethodInvoker;
 template<typename R, typename... ArgTs>
 struct MethodInvoker<R(NetServer::*)(ArgTs...)> {
   using ReturnT = R;
-  using ArgumentTuple = msgpack::type::tuple<ArgTs...>;
+  using ArgumentTuple = std::tuple<std::decay_t<ArgTs>...>;
 
   static ReturnT call(NetServer* server, R(NetServer::*memberFunc)(ArgTs...), ArgumentTuple&& args) {
-    return (server->*memberFunc)(args.template get<std::index_sequence_for<ArgTs>>()...);
+    return std::apply(memberFunc, std::tuple_cat(std::make_tuple(server), args));
   }
 };
 
@@ -71,7 +70,8 @@ using MethodFunc = void(*)(NetServer*, const msgpack::object&, msgpack::sbuffer&
  * @brief List of RPC methods a client can invoke
  */
 static const std::unordered_map<String, MethodFunc> METHODS = {
-  {"getFile", &wrapMethod<&NetServer::rpcGetFile>},
+  {NetCommon::Method::GET_FILE, &wrapMethod<&NetServer::rpcGetFile>},
+  {NetCommon::Method::DO_ACTION, &wrapMethod<&NetServer::rpcDoAction>},
 };
 
 NetServer::NetServer(FurnaceGUI* gui) : gui(gui) {}
@@ -170,5 +170,15 @@ std::vector<uint8_t> NetServer::rpcGetFile() {
     delete writer;
 
     return data;
+  }).get();
+}
+
+msgpack::type::nil_t NetServer::rpcDoAction(const UndoAction& action) {
+  return gui->runOnGuiThread<msgpack::type::nil_t>([&]() {
+      gui->doRedoAction(action);
+
+      // TODO: Broadcast changes to all connected clients somehow
+
+    return msgpack::type::nil_t();
   }).get();
 }

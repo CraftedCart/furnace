@@ -31,6 +31,7 @@
 
 // Forward declarations
 class FurnaceGUI;
+struct UndoAction;
 
 class NetClient {
   private:
@@ -62,6 +63,7 @@ class NetClient {
     void start(const String& address);
 
     void downloadFileAsync();
+    void sendActionAsync(const UndoAction& action);
 
   private:
     void runThread(const String& address);

@@ -2628,28 +2628,28 @@ void FurnaceGUI::prepareUndo(ActionType action) {
 void FurnaceGUI::makeUndo(ActionType action) {
   bool doPush=false;
   UndoStep s;
-  s.type=action;
-  s.cursor=cursor;
-  s.selStart=selStart;
-  s.selEnd=selEnd;
+  s.action.type=action;
+  s.position.cursor=cursor;
+  s.position.selStart=selStart;
+  s.position.selEnd=selEnd;
   int order=e->getOrder();
-  s.order=order;
-  s.nibble=curNibble;
+  s.position.order=order;
+  s.position.nibble=curNibble;
   switch (action) {
     case GUI_UNDO_CHANGE_ORDER:
       for (int i=0; i<DIV_MAX_CHANS; i++) {
         for (int j=0; j<128; j++) {
           if (oldOrders.ord[i][j]!=e->song.orders.ord[i][j]) {
-            s.ord.push_back(UndoOrderData(i,j,oldOrders.ord[i][j],e->song.orders.ord[i][j]));
+            s.action.ord.push_back(UndoOrderData(i,j,oldOrders.ord[i][j],e->song.orders.ord[i][j]));
           }
         }
       }
-      s.oldOrdersLen=oldOrdersLen;
-      s.newOrdersLen=e->song.ordersLen;
+      s.action.oldOrdersLen=oldOrdersLen;
+      s.action.newOrdersLen=e->song.ordersLen;
       if (oldOrdersLen!=e->song.ordersLen) {
         doPush=true;
       }
-      if (!s.ord.empty()) {
+      if (!s.action.ord.empty()) {
         doPush=true;
       }
       break;
@@ -2664,12 +2664,12 @@ void FurnaceGUI::makeUndo(ActionType action) {
         for (int j=0; j<e->song.patLen; j++) {
           for (int k=0; k<32; k++) {
             if (p->data[j][k]!=oldPat[i]->data[j][k]) {
-              s.pat.push_back(UndoPatternData(i,e->song.orders.ord[i][order],j,k,oldPat[i]->data[j][k],p->data[j][k]));
+              s.action.pat.push_back(UndoPatternData(i,e->song.orders.ord[i][order],j,k,oldPat[i]->data[j][k],p->data[j][k]));
             }
           }
         }
       }
-      if (!s.pat.empty()) {
+      if (!s.action.pat.empty()) {
         doPush=true;
       }
       break;
@@ -2679,6 +2679,15 @@ void FurnaceGUI::makeUndo(ActionType action) {
     undoHist.push_back(s);
     redoHist.clear();
     if (undoHist.size()>settings.maxUndoSteps) undoHist.pop_front();
+
+    // Broadcast the change over the network
+#ifdef HAVE_NETWORKING
+    if (client.has_value()) {
+      client->sendActionAsync(s.action);
+    } else if (server.has_value()) {
+      // TODO TODO TODO
+    }
+#endif
   }
 }
 
@@ -3036,10 +3045,10 @@ void FurnaceGUI::doUndo() {
   redoHist.push_back(us);
   modified=true;
 
-  switch (us.type) {
+  switch (us.action.type) {
     case GUI_UNDO_CHANGE_ORDER:
-      e->song.ordersLen=us.oldOrdersLen;
-      for (UndoOrderData& i: us.ord) {
+      e->song.ordersLen=us.action.oldOrdersLen;
+      for (UndoOrderData& i: us.action.ord) {
         e->song.orders.ord[i.chan][i.ord]=i.oldVal;
       }
       break;
@@ -3049,17 +3058,17 @@ void FurnaceGUI::doUndo() {
     case GUI_UNDO_PATTERN_PUSH:
     case GUI_UNDO_PATTERN_CUT:
     case GUI_UNDO_PATTERN_PASTE:
-      for (UndoPatternData& i: us.pat) {
+      for (UndoPatternData& i: us.action.pat) {
         DivPattern* p=e->song.pat[i.chan].getPattern(i.pat,true);
         p->data[i.row][i.col]=i.oldVal;
       }
       if (!e->isPlaying()) {
-        cursor=us.cursor;
-        selStart=us.selStart;
-        selEnd=us.selEnd;
-        curNibble=us.nibble;
+        cursor=us.position.cursor;
+        selStart=us.position.selStart;
+        selEnd=us.position.selEnd;
+        curNibble=us.position.nibble;
         updateScroll(cursor.y);
-        e->setOrder(us.order);
+        e->setOrder(us.position.order);
       }
       break;
   }
@@ -3071,12 +3080,41 @@ void FurnaceGUI::doRedo() {
   if (redoHist.empty()) return;
   UndoStep& us=redoHist.back();
   undoHist.push_back(us);
+
+  doRedoAction(us.action);
+
+  // Update positioning
+  switch (us.action.type) {
+    case GUI_UNDO_CHANGE_ORDER:
+      break;
+    case GUI_UNDO_PATTERN_EDIT:
+    case GUI_UNDO_PATTERN_DELETE:
+    case GUI_UNDO_PATTERN_PULL:
+    case GUI_UNDO_PATTERN_PUSH:
+    case GUI_UNDO_PATTERN_CUT:
+    case GUI_UNDO_PATTERN_PASTE:
+      if (!e->isPlaying()) {
+        cursor=us.position.cursor;
+        selStart=us.position.selStart;
+        selEnd=us.position.selEnd;
+        curNibble=us.position.nibble;
+        updateScroll(cursor.y);
+        e->setOrder(us.position.order);
+      }
+
+      break;
+  }
+
+  redoHist.pop_back();
+}
+
+void FurnaceGUI::doRedoAction(const UndoAction& action) {
   modified=true;
 
-  switch (us.type) {
+  switch (action.type) {
     case GUI_UNDO_CHANGE_ORDER:
-      e->song.ordersLen=us.newOrdersLen;
-      for (UndoOrderData& i: us.ord) {
+      e->song.ordersLen=action.newOrdersLen;
+      for (const UndoOrderData& i: action.ord) {
         e->song.orders.ord[i.chan][i.ord]=i.newVal;
       }
       break;
@@ -3086,23 +3124,13 @@ void FurnaceGUI::doRedo() {
     case GUI_UNDO_PATTERN_PUSH:
     case GUI_UNDO_PATTERN_CUT:
     case GUI_UNDO_PATTERN_PASTE:
-      for (UndoPatternData& i: us.pat) {
+      for (const UndoPatternData& i: action.pat) {
         DivPattern* p=e->song.pat[i.chan].getPattern(i.pat,true);
         p->data[i.row][i.col]=i.newVal;
-      }
-      if (!e->isPlaying()) {
-        cursor=us.cursor;
-        selStart=us.selStart;
-        selEnd=us.selEnd;
-        curNibble=us.nibble;
-        updateScroll(cursor.y);
-        e->setOrder(us.order);
       }
 
       break;
   }
-
-  redoHist.pop_back();
 }
 
 void FurnaceGUI::play(int row) {

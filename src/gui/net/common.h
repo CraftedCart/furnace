@@ -49,6 +49,14 @@ namespace NetCommon {
   >;
 
   /**
+   * @brief Contains RPC method names
+   */
+  namespace Method {
+    constexpr const char* GET_FILE = "getFile";
+    constexpr const char* DO_ACTION = "doAction";
+  }
+
+  /**
    * @brief Takes a status code and returns a friendly string describing the error
    */
   const char* statusToString(StatusCode code);

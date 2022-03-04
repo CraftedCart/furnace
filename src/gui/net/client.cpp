@@ -39,8 +39,8 @@ void NetClient::start(const String& address) {
 }
 
 void NetClient::downloadFileAsync() {
-  taskQueue.enqueue<void>([&]() {
-    std::optional<std::vector<uint8_t>> file = rpcCall<std::vector<uint8_t>>("getFile");
+  taskQueue.enqueue<void>([=]() {
+    std::optional<std::vector<uint8_t>> file = rpcCall<std::vector<uint8_t>>(NetCommon::Method::GET_FILE);
     if (!file.has_value()) return;
 
     // Copy the file into a new buffer, since `DivEngine::load` expects to be able to `delete[]` it
@@ -52,6 +52,12 @@ void NetClient::downloadFileAsync() {
         logE("Error loading file gotten from RPC (in downloadFileAsync)\n");
       }
     }).get();
+  });
+}
+
+void NetClient::sendActionAsync(const UndoAction& action) {
+  taskQueue.enqueue<void>([=]() {
+    rpcCall<msgpack::type::nil_t>(NetCommon::Method::DO_ACTION, action);
   });
 }
 
