@@ -22,6 +22,7 @@
 
 #include "../../ta-utils.h"
 #include <msgpack.hpp>
+#include <zmq.hpp>
 
 /**
  * @brief Stuff shared between client and server
@@ -32,21 +33,63 @@ namespace NetCommon {
     METHOD_NOT_FOUND = 1,
     METHOD_WRONG_ARGS = 2,
   };
+
+  enum class MessageKind {
+    REQUEST = 0,
+    RESPONSE = 1,
+  };
 }
 
 // Needs to be in the global namespace
 MSGPACK_ADD_ENUM(NetCommon::StatusCode);
+MSGPACK_ADD_ENUM(NetCommon::MessageKind);
 
 namespace NetCommon {
-  using Request = msgpack::type::tuple<
-    String, // methodName
-    msgpack::object // arguments (should be a msgpack array)
-  >;
+  struct RequestOrResponse {
+    MessageKind kind;
+    uint64_t id;
+    msgpack::object methodOrStatus;
+    msgpack::object argsOrResult;
 
-  using Response = msgpack::type::tuple<
-    StatusCode, // status
-    msgpack::object // result (nil if `status` is not `OK`)
-  >;
+    MSGPACK_DEFINE_ARRAY(kind, id, methodOrStatus, argsOrResult);
+  };
+
+  struct Request {
+    MessageKind kind;
+    uint64_t id;
+    String methodName;
+    msgpack::object args;
+
+    MSGPACK_DEFINE_ARRAY(kind, id, methodName, args);
+
+    /**
+     * @raise msgpack::type_error if conversion fails
+     */
+    static Request from(RequestOrResponse&& other);
+  };
+
+  struct Response {
+    MessageKind kind;
+    uint64_t id;
+    StatusCode status;
+    msgpack::object result;
+
+    MSGPACK_DEFINE_ARRAY(kind, id, status, result);
+
+    /**
+     * @raise msgpack::type_error if conversion fails
+     */
+    static Response from(RequestOrResponse&& other);
+  };
+
+  struct ClientId {
+    std::vector<uint8_t> id;
+
+    static ClientId fromMessage(const zmq::message_t& message);
+
+    bool operator==(const ClientId& other) const;
+    bool operator!=(const ClientId& other) const;
+  };
 
   /**
    * @brief Contains RPC method names
@@ -60,6 +103,28 @@ namespace NetCommon {
    * @brief Takes a status code and returns a friendly string describing the error
    */
   const char* statusToString(StatusCode code);
+}
+
+namespace std {
+  template<>
+  struct hash<NetCommon::ClientId> {
+    inline std::size_t operator()(const NetCommon::ClientId& k) const {
+      int i = 0;
+      std::size_t hash = 0;
+
+      for (uint8_t byte : k.id) {
+        hash <<= 1;
+        hash ^= byte;
+
+        // Prevent longer IDs from consuming too much time here
+        if (i == 16) break;
+
+        i++;
+      }
+
+      return hash;
+    }
+  };
 }
 
 #endif

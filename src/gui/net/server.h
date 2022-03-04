@@ -20,46 +20,37 @@
 #ifndef _GUI_NET_SERVER_H
 #define _GUI_NET_SERVER_H
 
+#include "shared.h"
 #include <msgpack.hpp>
 #include <zmq.hpp>
-#include <thread>
-#include <vector>
-#include <optional>
-#include <cstdint>
+#include <unordered_set>
 
 // Forward declarations
 class FurnaceGUI;
-struct UndoAction;
 
-class NetServer {
+class NetServer : public NetShared {
   private:
-    /** Non-owning pointer */
-    FurnaceGUI* gui;
-
-    std::optional<std::thread> thread;
+    std::unordered_set<NetCommon::ClientId> connectedClients;
 
     /**
-     * @brief Should the server thread be stopped (set to `true` on destruction)
+     * @brief The client that the server is currently responding to
+     *
+     * Should only be accessed from the net thread
      */
-    bool stopThread;
+    std::optional<NetCommon::ClientId> currentClient = std::nullopt;
+
+    uint64_t lastRequestId = 0;
 
   public:
     NetServer(FurnaceGUI* gui);
-    ~NetServer();
 
     /**
      * @brief Start the server on another thread
      */
     void start(uint16_t port);
 
-    // RPC Methods (Need to be public, don't call these directly!) //
-
-    /**
-     * @brief Download the file from the server
-     */
-    std::vector<uint8_t> rpcGetFile();
-
-    msgpack::type::nil_t rpcDoAction(const UndoAction& action);
+  protected:
+    virtual msgpack::type::nil_t recvDoAction(const UndoAction& action) override;
 
   private:
     void runThread(uint16_t port);

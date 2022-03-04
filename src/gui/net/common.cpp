@@ -32,4 +32,44 @@ namespace NetCommon {
         return "Unknown error";
     }
   }
+
+  Request Request::from(RequestOrResponse&& other) {
+    assert(other.kind == MessageKind::REQUEST);
+
+    Request req;
+    req.kind = other.kind;
+    req.id = other.id;
+    other.methodOrStatus.convert(req.methodName);
+    req.args = other.argsOrResult;
+
+    return req;
+  }
+
+  Response Response::from(RequestOrResponse&& other) {
+    assert(other.kind == MessageKind::RESPONSE);
+
+    Response resp;
+    resp.kind = other.kind;
+    resp.id = other.id;
+    other.methodOrStatus.convert(resp.status);
+    resp.result = other.argsOrResult;
+
+    return resp;
+  }
+
+  ClientId ClientId::fromMessage(const zmq::message_t& message) {
+    ClientId id;
+    id.id.resize(message.size());
+    memcpy(id.id.data(), message.data(), message.size());
+
+    return id;
+  }
+
+  bool ClientId::operator==(const ClientId& other) const {
+    return id == other.id;
+  }
+
+  bool ClientId::operator!=(const ClientId& other) const {
+    return id != other.id;
+  }
 }

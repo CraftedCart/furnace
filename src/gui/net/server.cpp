@@ -21,67 +21,9 @@
 #include "common.h"
 #include "../gui.h"
 #include "../../ta-log.h"
-#include <type_traits>
+#include <cinttypes>
 
-/**
- * @brief Helper to invoke a member function wrapped by `wrapMethod`
- *
- * `wrapMethod` only has one template argument, `auto func`, to make it simple to actually construct the template,
- * however we do need to be able get the return type and argument types from `func`, so `wrapMethod` passes its template
- * argument type over to this struct (which has a more specialized variant).
- */
-template<typename T>
-struct MethodInvoker;
-
-template<typename R, typename... ArgTs>
-struct MethodInvoker<R(NetServer::*)(ArgTs...)> {
-  using ReturnT = R;
-  using ArgumentTuple = std::tuple<std::decay_t<ArgTs>...>;
-
-  static ReturnT call(NetServer* server, R(NetServer::*memberFunc)(ArgTs...), ArgumentTuple&& args) {
-    return std::apply(memberFunc, std::tuple_cat(std::make_tuple(server), args));
-  }
-};
-
-/**
- * @brief Wrap a `NetServer` member function into something that can be stored in `METHODS`
- *
- * Wraps a `NetServer` member function into something that can take a MsgPack object, deserialize it into the function
- * arguments, call the function, and serialize the function's return value.
- */
-template<auto func>
-void wrapMethod(NetServer* server, const msgpack::object& argsObject, msgpack::sbuffer& returnBuffer) {
-  using Sig = MethodInvoker<typeof(func)>;
-
-  // Deserialize args
-  typename Sig::ArgumentTuple argsTuple;
-  argsObject.convert(argsTuple);
-
-  // Call the wrapped function
-  typename Sig::ReturnT returnVal = Sig::call(server, func, std::move(argsTuple));
-
-  // Serialize the return value
-  msgpack::pack(returnBuffer, returnVal);
-}
-
-using MethodFunc = void(*)(NetServer*, const msgpack::object&, msgpack::sbuffer&);
-
-/**
- * @brief List of RPC methods a client can invoke
- */
-static const std::unordered_map<String, MethodFunc> METHODS = {
-  {NetCommon::Method::GET_FILE, &wrapMethod<&NetServer::rpcGetFile>},
-  {NetCommon::Method::DO_ACTION, &wrapMethod<&NetServer::rpcDoAction>},
-};
-
-NetServer::NetServer(FurnaceGUI* gui) : gui(gui) {}
-
-NetServer::~NetServer() {
-  if (thread.has_value()) {
-    stopThread = true;
-    thread->join();
-  }
-}
+NetServer::NetServer(FurnaceGUI* gui) : NetShared(gui) {}
 
 void NetServer::start(uint16_t port) {
   assert(!thread.has_value() && "Tried to start net server even though it was already running");
@@ -92,8 +34,7 @@ void NetServer::start(uint16_t port) {
 }
 
 void NetServer::runThread(uint16_t port) {
-  zmq::context_t zmqContext{1};
-  zmq::socket_t socket{zmqContext, zmq::socket_type::router};
+  socket = zmq::socket_t{zmqContext, zmq::socket_type::router};
 
   try {
     socket.bind(std::string("tcp://*:") + std::to_string(port));
@@ -103,6 +44,12 @@ void NetServer::runThread(uint16_t port) {
   }
 
   while (!stopThread) {
+    currentClient = std::nullopt;
+
+    std::this_thread::yield();
+
+    taskQueue.processTasks();
+
     try {
       // Receive a request from client
       // First we receive an identifier for the client
@@ -118,80 +65,90 @@ void NetServer::runThread(uint16_t port) {
         std::this_thread::yield();
       }
 
+      NetCommon::ClientId clientId = NetCommon::ClientId::fromMessage(requestFrom);
+      currentClient = clientId;
+
+      // Add the client to our list of connected clients (if it isn't already there)
+      connectedClients.insert(clientId);
+
       msgpack::sbuffer respondBuffer;
 
       try {
         // Try deserialize it
         msgpack::object_handle reqObjectHandle = msgpack::unpack(request.data<char>(), request.size());
         msgpack::object reqObject = reqObjectHandle.get();
-        NetCommon::Request reqMessage;
-        reqObject.convert(reqMessage);
+        NetCommon::RequestOrResponse reqOrRespMessage;
+        reqObject.convert(reqOrRespMessage);
 
-        logI("RPC: client >> %s\n", reqMessage.get<0>().c_str());
+        switch (reqOrRespMessage.kind) {
+          case NetCommon::MessageKind::REQUEST: {
+            msgpack::sbuffer respondBuffer;
+            handleRequest(NetCommon::Request::from(std::move(reqOrRespMessage)), respondBuffer);
 
-        // Look up the method
-        auto methodIter = METHODS.find(reqMessage.get<0>());
-        if (methodIter != METHODS.end()) {
-          // Method exists, let's try call it
-          msgpack::packer<msgpack::sbuffer> packer(respondBuffer);
-          packer.pack_array(2);
-          packer.pack(NetCommon::StatusCode::OK);
-          methodIter->second(this, reqMessage.get<1>(), respondBuffer);
-        } else {
-          // Method does not exist
-          logE("Client tries to call non-existent method %s\n", reqMessage.get<0>().c_str());
+            // First we send the client identifier we want to send to
+            while (!socket.send(requestFrom, zmq::send_flags::dontwait | zmq::send_flags::sndmore).has_value()) {
+              if (stopThread) return;
+              std::this_thread::yield();
+            }
+            // Then we send the payload to the client
+            while (!socket.send(zmq::buffer(respondBuffer.data(), respondBuffer.size()), zmq::send_flags::dontwait).has_value()) {
+              if (stopThread) return;
+              std::this_thread::yield();
+            }
+            break;
+          }
 
-          respondBuffer.clear();
-          msgpack::pack(respondBuffer, NetCommon::Response(NetCommon::StatusCode::METHOD_NOT_FOUND, msgpack::type::nil_t()));
+          case NetCommon::MessageKind::RESPONSE: {
+            // TODO
+            // handleResponse(NetCommon::Response::from(std::move(reqOrRespMessage)));
+            break;
+          }
+
+          default: {
+            logE("Invalid message kind from server\n");
+            break;
+          }
         }
       } catch (msgpack::type_error& e) {
-        logE("MsgPack type error in server: %s\n", e.what());
-
-        respondBuffer.clear();
-        msgpack::pack(respondBuffer, NetCommon::Response(NetCommon::StatusCode::METHOD_WRONG_ARGS, msgpack::type::nil_t()));
-      }
-
-      // Send the reply to the client
-      // First we send the client identifier we want to send to
-      while (!socket.send(requestFrom, zmq::send_flags::dontwait | zmq::send_flags::sndmore).has_value()) {
-        if (stopThread) return;
-        std::this_thread::yield();
-      }
-      // Then we send the payload to the client
-      while (!socket.send(zmq::buffer(respondBuffer.data(), respondBuffer.size()), zmq::send_flags::dontwait).has_value()) {
-        if (stopThread) return;
-        std::this_thread::yield();
+        logE("MsgPack type error in server (not enough info to respond to client): %s\n", e.what());
+        continue;
       }
     } catch (zmq::error_t& e) {
       logE("ZMQ error in server: %s\n", e.what());
     }
-
-    std::this_thread::yield();
   }
 
+  currentClient = std::nullopt;
   socket.close();
 }
 
-std::vector<uint8_t> NetServer::rpcGetFile() {
-  return gui->runOnGuiThread<std::vector<uint8_t>>([&]() {
-    SafeWriter* writer = gui->getEngine()->saveFur();
+msgpack::type::nil_t NetServer::recvDoAction(const UndoAction& action) {
+  msgpack::type::nil_t out = NetShared::recvDoAction(action);
 
-    std::vector<uint8_t> data(writer->size());
-    memcpy(data.data(), writer->getFinalBuf(), writer->size());
+  // Propagate message to other clients
+  msgpack::zone zone;
+  NetCommon::Request reqMessage = NetCommon::Request{
+    NetCommon::MessageKind::REQUEST,
+    lastRequestId++,
+    NetCommon::Method::DO_ACTION,
+    msgpack::object(msgpack::type::tuple<UndoAction>(action), zone)
+  };
+  msgpack::sbuffer propagateBuffer;
+  msgpack::pack(propagateBuffer, reqMessage);
 
-    writer->finish();
-    delete writer;
+  for (const NetCommon::ClientId& client : connectedClients) {
+    if (client == currentClient) continue;
 
-    return data;
-  }).get();
-}
+    while (!socket.send(zmq::buffer(client.id.data(), client.id.size()), zmq::send_flags::dontwait | zmq::send_flags::sndmore).has_value()) {
+      if (stopThread) return out;
+      std::this_thread::yield();
+    }
+    // Then we send the payload to the client
+    while (!socket.send(zmq::buffer(propagateBuffer.data(), propagateBuffer.size()), zmq::send_flags::dontwait).has_value()) {
+      if (stopThread) return out;
+      std::this_thread::yield();
+    }
+  }
 
-msgpack::type::nil_t NetServer::rpcDoAction(const UndoAction& action) {
-  return gui->runOnGuiThread<msgpack::type::nil_t>([&]() {
-      gui->doRedoAction(action);
-
-      // TODO: Broadcast changes to all connected clients somehow
-
-    return msgpack::type::nil_t();
-  }).get();
+  return out;
 }

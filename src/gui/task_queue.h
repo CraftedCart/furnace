@@ -75,7 +75,7 @@ class TaskQueue {
     template<typename R, typename F>
     std::future<R> enqueue(F&& func) {
       // Move the task onto the heap, and wrap it up in a `Task`
-      std::unique_ptr<Task<R>> task = std::make_unique<Task<R>>(std::packaged_task<R()>(func));
+      std::unique_ptr<Task<R>> task = std::make_unique<Task<R>>(std::packaged_task<R()>(std::forward<F>(func)));
 
       std::future<R> future = task->task.get_future();
 

@@ -20,43 +20,53 @@
 #ifndef _GUI_NET_CLIENT_H
 #define _GUI_NET_CLIENT_H
 
-#include "common.h"
-#include "../task_queue.h"
+#include "shared.h"
 #include "../../ta-utils.h"
 #include "../../ta-log.h"
 #include <zmq.hpp>
-#include <optional>
-#include <thread>
-#include <cstdint>
+#include <future>
+#include <unordered_map>
+#include <cinttypes>
 
 // Forward declarations
 class FurnaceGUI;
 struct UndoAction;
 
-class NetClient {
+class NetClient : public NetShared {
   private:
-    /** Non-owning pointer */
-    FurnaceGUI* gui;
+    struct RpcResponse {
+      std::optional<NetCommon::Response> message;
 
-    /** Must be created on client thread */
-    zmq::socket_t socket;
+      RpcResponse() = default;
+      RpcResponse(std::optional<NetCommon::Response>&& message);
+
+      template<typename T>
+      std::optional<T> as();
+    };
+
+  private:
+    /**
+     * @brief Thread where async work can be fulfilled, without blocking the GUI thread or net thread
+     */
+    std::optional<std::thread> workerThread;
 
     /**
-     * @brief Task queue run on the client thread
+     * @brief Should the worker thread be stopped (set to `true` on destruction)
      */
-    TaskQueue taskQueue;
+    bool stopWorkerThread = false;
 
-    std::optional<std::thread> thread;
-
-    /**
-     * @brief Should the client thread be stopped (set to `true` on destruction)
-     */
-    bool stopThread;
+    TaskQueue workerTaskQueue;
 
     /**
      * @brief Are we in the middle of downloading the .fur file from the server?
      */
     bool downloadingFile = false;
+
+    /**
+     * Should only be accessed from the net thread
+     */
+    std::unordered_map<uint64_t, std::promise<RpcResponse>> pendingRequests;
+    uint64_t lastRequestId = 0;
 
   public:
     NetClient(FurnaceGUI* gui);
@@ -74,71 +84,60 @@ class NetClient {
 
   private:
     void runThread(const String& address);
+    void runWorkerThread();
+
+    void handleResponse(const NetCommon::Response& respMessage);
 
     /**
      * @brief Invoke a method on the server
-     *
-     * @return
-     * - `R` if the request succeeds
-     * - `std::nullopt` if there's an error (deserialization error or network error)
      */
-    template<typename R, typename... ArgTs>
-    std::optional<R> rpcCall(const String& methodName, ArgTs... args) {
+    template<typename... ArgTs>
+    std::future<RpcResponse> rpcCall(const String& methodName, ArgTs... args) {
       assert(thread.has_value() && "Tried to do RPC call when client thread isn't running");
       assert(std::this_thread::get_id() == thread->get_id() && "RPC calls need to be done on the client thread");
 
-      logI("RPC: server << %s\n", methodName.c_str());
-
       try {
+        uint64_t requestId = lastRequestId++;
+        logI("RPC: [%" PRIu64 "] server << %s\n", requestId, methodName.c_str());
+
         // Serialize the request
         msgpack::zone zone;
-        NetCommon::Request reqMessage = NetCommon::Request(
+        NetCommon::Request reqMessage = NetCommon::Request{
+          NetCommon::MessageKind::REQUEST,
+          requestId,
           methodName,
           msgpack::object(msgpack::type::tuple<ArgTs...>(args...), zone)
-        );
+        };
         msgpack::sbuffer requestBuffer;
         msgpack::pack(requestBuffer, reqMessage);
 
         // Send a request to the server
         while (!socket.send(zmq::buffer(requestBuffer.data(), requestBuffer.size()), zmq::send_flags::dontwait).has_value()) {
-          if (stopThread) return std::nullopt;
-          std::this_thread::yield();
-        }
-
-        // Wait for a reply from the server
-        zmq::message_t reply{};
-        while (!socket.recv(reply, zmq::recv_flags::dontwait).has_value()) {
-          if (stopThread) return std::nullopt;
-          std::this_thread::yield();
-        }
-
-        // Try deserialize the response
-        try {
-          msgpack::object_handle respObjectHandle = msgpack::unpack(reply.data<char>(), reply.size());
-          msgpack::object respObject = respObjectHandle.get();
-          NetCommon::Response respMessage;
-          respObject.convert(respMessage);
-
-          NetCommon::StatusCode statusCode = respMessage.get<0>();
-          if (statusCode == NetCommon::StatusCode::OK) {
-            // The server handled our message fine! Try convert to the return type now.
-            R out;
-            respMessage.get<1>().convert(out);
-
-            return out;
-          } else {
-            logE("Client got error from server: E%u %s\n", statusCode, NetCommon::statusToString(statusCode));
-            return std::nullopt;
+          if (stopThread) {
+            std::promise<RpcResponse> promise;
+            promise.set_value(RpcResponse());
+            return promise.get_future();
           }
-        } catch (msgpack::type_error& e) {
-          logE("MsgPack type error in client: %s\n", e.what());
-          return std::nullopt;
+
+          std::this_thread::yield();
         }
+
+        // Make a promise corresponding to this request
+        std::promise<RpcResponse> promise;
+        std::future<RpcResponse> future = promise.get_future();
+        pendingRequests.insert({requestId, std::move(promise)});
+        return future;
+
       } catch (zmq::error_t& e) {
         logE("ZMQ error in client: %s\n", e.what());
-        return std::nullopt;
+
+        std::promise<RpcResponse> promise;
+        promise.set_value(RpcResponse());
+        return promise.get_future();
       }
     }
+
+    void fulfillRequest(uint64_t id, std::optional<NetCommon::Response>&& message);
 };
 
 #endif

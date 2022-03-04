@@ -392,6 +392,7 @@ src/gui/task_queue.cpp
 set(NETWORKING_SOURCES
 src/gui/net/server.cpp
 src/gui/net/client.cpp
+src/gui/net/shared.cpp
 src/gui/net/common.cpp
 )
 
