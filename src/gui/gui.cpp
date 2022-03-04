@@ -2037,7 +2037,7 @@ void FurnaceGUI::drawNet() {
       ImGui::Text("Joined session");
 
       ImGui::BeginDisabled(client->isDownloadingFile());
-      if (ImGui::Button("Resync from server")) client->downloadFileAsync();
+      if (ImGui::Button("Resync from server")) client->sendDownloadFile();
       ImGui::EndDisabled();
     } else {
       // We're not in a session - offer to host or connect
@@ -2070,7 +2070,7 @@ void FurnaceGUI::drawNet() {
 
         client.emplace(this);
         client->start(sessionOptions.connect.address);
-        client->downloadFileAsync();
+        client->sendDownloadFile();
       }
     }
   }
@@ -2687,9 +2687,9 @@ void FurnaceGUI::makeUndo(ActionType action) {
     // Broadcast the change over the network
 #ifdef HAVE_NETWORKING
     if (client.has_value()) {
-      client->sendActionAsync(s.action);
+      client->sendAction(s.action);
     } else if (server.has_value()) {
-      // TODO TODO TODO
+      server->sendAction(s.action);
     }
 #endif
   }

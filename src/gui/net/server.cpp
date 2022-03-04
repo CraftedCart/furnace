@@ -33,6 +33,14 @@ void NetServer::start(uint16_t port) {
   thread.emplace([this, port]() { runThread(port); });
 }
 
+void NetServer::sendAction(const UndoAction& action) {
+  taskQueue.enqueue<void>([=]() {
+    for (const NetCommon::ClientId& client : connectedClients) {
+      rpcCall(client, NetCommon::Method::DO_ACTION, action);
+    }
+  });
+}
+
 void NetServer::runThread(uint16_t port) {
   socket = zmq::socket_t{zmqContext, zmq::socket_type::router};
 
@@ -56,12 +64,14 @@ void NetServer::runThread(uint16_t port) {
       zmq::message_t requestFrom;
       while (!socket.recv(requestFrom, zmq::recv_flags::dontwait).has_value()) {
         if (stopThread) return;
+        taskQueue.processTasks();
         std::this_thread::yield();
       }
       // Then we receive the client's payload
       zmq::message_t request;
       while (!socket.recv(request, zmq::recv_flags::dontwait).has_value()) {
         if (stopThread) return;
+        taskQueue.processTasks();
         std::this_thread::yield();
       }
 
@@ -88,19 +98,20 @@ void NetServer::runThread(uint16_t port) {
             // First we send the client identifier we want to send to
             while (!socket.send(requestFrom, zmq::send_flags::dontwait | zmq::send_flags::sndmore).has_value()) {
               if (stopThread) return;
+              taskQueue.processTasks();
               std::this_thread::yield();
             }
             // Then we send the payload to the client
             while (!socket.send(zmq::buffer(respondBuffer.data(), respondBuffer.size()), zmq::send_flags::dontwait).has_value()) {
               if (stopThread) return;
+              taskQueue.processTasks();
               std::this_thread::yield();
             }
             break;
           }
 
           case NetCommon::MessageKind::RESPONSE: {
-            // TODO
-            // handleResponse(NetCommon::Response::from(std::move(reqOrRespMessage)));
+            handleResponse(NetCommon::Response::from(std::move(reqOrRespMessage)));
             break;
           }
 
@@ -126,28 +137,10 @@ msgpack::type::nil_t NetServer::recvDoAction(const UndoAction& action) {
   msgpack::type::nil_t out = NetShared::recvDoAction(action);
 
   // Propagate message to other clients
-  msgpack::zone zone;
-  NetCommon::Request reqMessage = NetCommon::Request{
-    NetCommon::MessageKind::REQUEST,
-    lastRequestId++,
-    NetCommon::Method::DO_ACTION,
-    msgpack::object(msgpack::type::tuple<UndoAction>(action), zone)
-  };
-  msgpack::sbuffer propagateBuffer;
-  msgpack::pack(propagateBuffer, reqMessage);
-
   for (const NetCommon::ClientId& client : connectedClients) {
     if (client == currentClient) continue;
 
-    while (!socket.send(zmq::buffer(client.id.data(), client.id.size()), zmq::send_flags::dontwait | zmq::send_flags::sndmore).has_value()) {
-      if (stopThread) return out;
-      std::this_thread::yield();
-    }
-    // Then we send the payload to the client
-    while (!socket.send(zmq::buffer(propagateBuffer.data(), propagateBuffer.size()), zmq::send_flags::dontwait).has_value()) {
-      if (stopThread) return out;
-      std::this_thread::yield();
-    }
+    rpcCall(client, NetCommon::Method::DO_ACTION, action);
   }
 
   return out;

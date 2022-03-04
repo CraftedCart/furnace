@@ -49,11 +49,73 @@ class NetServer : public NetShared {
      */
     void start(uint16_t port);
 
+    void sendAction(const UndoAction& action);
+
   protected:
     virtual msgpack::type::nil_t recvDoAction(const UndoAction& action) override;
 
   private:
     void runThread(uint16_t port);
+
+    /**
+     * @brief Invoke a method on a client
+     */
+    template<typename... ArgTs>
+    std::future<RpcResponse> rpcCall(const NetCommon::ClientId& client, const String& methodName, ArgTs... args) {
+      assert(thread.has_value() && "Tried to do RPC call when net thread isn't running");
+      assert(std::this_thread::get_id() == thread->get_id() && "RPC calls need to be done on the net thread");
+
+      try {
+        uint64_t requestId = lastRequestId++;
+        logI("RPC: [%" PRIu64 "] remote << %s\n", requestId, methodName.c_str());
+
+        // Serialize the request
+        msgpack::zone zone;
+        NetCommon::Request reqMessage = NetCommon::Request{
+          NetCommon::MessageKind::REQUEST,
+          requestId,
+          methodName,
+          msgpack::object(msgpack::type::tuple<ArgTs...>(args...), zone)
+        };
+        msgpack::sbuffer requestBuffer;
+        msgpack::pack(requestBuffer, reqMessage);
+
+        // Send a request to the client
+        while (!socket.send(zmq::buffer(client.id.data(), client.id.size()), zmq::send_flags::dontwait | zmq::send_flags::sndmore).has_value()) {
+          if (stopThread) {
+            std::promise<RpcResponse> promise;
+            promise.set_value(RpcResponse());
+            return promise.get_future();
+          }
+
+          taskQueue.processTasks();
+          std::this_thread::yield();
+        }
+        while (!socket.send(zmq::buffer(requestBuffer.data(), requestBuffer.size()), zmq::send_flags::dontwait).has_value()) {
+          if (stopThread) {
+            std::promise<RpcResponse> promise;
+            promise.set_value(RpcResponse());
+            return promise.get_future();
+          }
+
+          taskQueue.processTasks();
+          std::this_thread::yield();
+        }
+
+        // Make a promise corresponding to this request
+        std::promise<RpcResponse> promise;
+        std::future<RpcResponse> future = promise.get_future();
+        pendingRequests.insert({requestId, std::move(promise)});
+        return future;
+
+      } catch (zmq::error_t& e) {
+        logE("ZMQ error: %s\n", e.what());
+
+        std::promise<RpcResponse> promise;
+        promise.set_value(RpcResponse());
+        return promise.get_future();
+      }
+    }
 };
 
 #endif

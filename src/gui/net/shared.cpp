@@ -67,6 +67,9 @@ const std::unordered_map<String, NetShared::MethodFunc> NetShared::METHODS = {
   {NetCommon::Method::DO_ACTION, &wrapMethod<&NetShared::recvDoAction>},
 };
 
+NetShared::RpcResponse::RpcResponse(std::optional<NetCommon::Response>&& message) :
+  message(std::forward<std::optional<NetCommon::Response>>(message)) {}
+
 NetShared::NetShared(FurnaceGUI* gui) :
   gui(gui) {}
 
@@ -74,6 +77,15 @@ NetShared::~NetShared() {
   stopThread = true;
   zmqContext.shutdown();
   if (thread.has_value()) thread->join();
+  if (workerThread.has_value()) workerThread->join();
+}
+
+void NetShared::runWorkerThread() {
+  while (!stopThread) {
+    std::this_thread::yield();
+
+    workerTaskQueue.processTasks();
+  }
 }
 
 void NetShared::handleRequest(const NetCommon::Request& reqMessage, msgpack::sbuffer& respondBuffer) {
@@ -117,6 +129,36 @@ void NetShared::handleRequest(const NetCommon::Request& reqMessage, msgpack::sbu
       msgpack::object(msgpack::type::nil_t())
     });
   }
+}
+
+void NetShared::handleResponse(const NetCommon::Response& respMessage) {
+  uint64_t messageId = respMessage.id;
+  NetCommon::StatusCode statusCode = respMessage.status;
+  if (statusCode == NetCommon::StatusCode::OK) {
+    // The server handled our message fine!
+    fulfillRequest(messageId, respMessage);
+  } else {
+    logE("Client got error from server: E%u %s\n", statusCode, NetCommon::statusToString(statusCode));
+    fulfillRequest(messageId, std::nullopt);
+  }
+}
+
+void NetShared::fulfillRequest(uint64_t id, std::optional<NetCommon::Response>&& message) {
+  assert(thread.has_value() && "Tried to fulfill request when net thread isn't running");
+  assert(std::this_thread::get_id() == thread->get_id() && "Request fulfillment need to be done on the net thread");
+
+  logI("RPC: [%" PRIu64 "] remote >>\n", id);
+
+  auto iter = pendingRequests.find(id);
+  if (iter == pendingRequests.end()) {
+    logE("Trying to fulfill request that we don't have noted down?\n");
+    return;
+  }
+
+  // Complete the future/promise
+  iter->second.set_value(RpcResponse(std::move(message)));
+
+  pendingRequests.erase(iter);
 }
 
 std::vector<uint8_t> NetShared::recvGetFile() {

@@ -26,7 +26,6 @@
 #include <zmq.hpp>
 #include <future>
 #include <unordered_map>
-#include <cinttypes>
 
 // Forward declarations
 class FurnaceGUI;
@@ -34,43 +33,13 @@ struct UndoAction;
 
 class NetClient : public NetShared {
   private:
-    struct RpcResponse {
-      std::optional<NetCommon::Response> message;
-
-      RpcResponse() = default;
-      RpcResponse(std::optional<NetCommon::Response>&& message);
-
-      template<typename T>
-      std::optional<T> as();
-    };
-
-  private:
-    /**
-     * @brief Thread where async work can be fulfilled, without blocking the GUI thread or net thread
-     */
-    std::optional<std::thread> workerThread;
-
-    /**
-     * @brief Should the worker thread be stopped (set to `true` on destruction)
-     */
-    bool stopWorkerThread = false;
-
-    TaskQueue workerTaskQueue;
-
     /**
      * @brief Are we in the middle of downloading the .fur file from the server?
      */
     bool downloadingFile = false;
 
-    /**
-     * Should only be accessed from the net thread
-     */
-    std::unordered_map<uint64_t, std::promise<RpcResponse>> pendingRequests;
-    uint64_t lastRequestId = 0;
-
   public:
     NetClient(FurnaceGUI* gui);
-    ~NetClient();
 
     /**
      * @brief Start the client on another thread
@@ -79,26 +48,23 @@ class NetClient : public NetShared {
 
     bool isDownloadingFile() const;
 
-    void downloadFileAsync();
-    void sendActionAsync(const UndoAction& action);
+    void sendDownloadFile();
+    void sendAction(const UndoAction& action);
 
   private:
     void runThread(const String& address);
-    void runWorkerThread();
-
-    void handleResponse(const NetCommon::Response& respMessage);
 
     /**
-     * @brief Invoke a method on the server
+     * @brief Invoke a method on the remote
      */
     template<typename... ArgTs>
     std::future<RpcResponse> rpcCall(const String& methodName, ArgTs... args) {
-      assert(thread.has_value() && "Tried to do RPC call when client thread isn't running");
-      assert(std::this_thread::get_id() == thread->get_id() && "RPC calls need to be done on the client thread");
+      assert(thread.has_value() && "Tried to do RPC call when net thread isn't running");
+      assert(std::this_thread::get_id() == thread->get_id() && "RPC calls need to be done on the net thread");
 
       try {
         uint64_t requestId = lastRequestId++;
-        logI("RPC: [%" PRIu64 "] server << %s\n", requestId, methodName.c_str());
+        logI("RPC: [%" PRIu64 "] remote << %s\n", requestId, methodName.c_str());
 
         // Serialize the request
         msgpack::zone zone;
@@ -119,6 +85,7 @@ class NetClient : public NetShared {
             return promise.get_future();
           }
 
+          taskQueue.processTasks();
           std::this_thread::yield();
         }
 
@@ -129,15 +96,13 @@ class NetClient : public NetShared {
         return future;
 
       } catch (zmq::error_t& e) {
-        logE("ZMQ error in client: %s\n", e.what());
+        logE("ZMQ error: %s\n", e.what());
 
         std::promise<RpcResponse> promise;
         promise.set_value(RpcResponse());
         return promise.get_future();
       }
     }
-
-    void fulfillRequest(uint64_t id, std::optional<NetCommon::Response>&& message);
 };
 
 #endif

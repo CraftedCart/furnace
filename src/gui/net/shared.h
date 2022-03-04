@@ -28,6 +28,7 @@
 #include <optional>
 #include <thread>
 #include <cstdint>
+#include <cinttypes>
 
 // Forward declarations
 class FurnaceGUI;
@@ -40,12 +41,33 @@ class NetShared {
   protected:
     using MethodFunc = void(*)(NetShared*, const msgpack::object&, msgpack::sbuffer&);
 
+    struct RpcResponse {
+      std::optional<NetCommon::Response> message;
+
+      RpcResponse() = default;
+      RpcResponse(std::optional<NetCommon::Response>&& message);
+
+      template<typename T>
+      std::optional<T> as() {
+        if (!message.has_value()) return std::nullopt;
+
+        try {
+          T out;
+          message->result.convert<T>(out);
+          return out;
+        } catch (msgpack::type_error& e) {
+          logE("MsgPack type error: %s\n", e.what());
+          return std::nullopt;
+        }
+      }
+    };
+
+  protected:
     /**
      * @brief List of RPC methods a client can invoke on a server, or a server can invoke on a client
      */
     static const std::unordered_map<String, MethodFunc> METHODS;
 
-  protected:
     /** Non-owning pointer */
     FurnaceGUI* gui;
 
@@ -65,16 +87,32 @@ class NetShared {
     std::optional<std::thread> thread;
 
     /**
-     * @brief Should the net thread be stopped (set to `true` on destruction)
+     * @brief Thread where async work can be fulfilled, without blocking the GUI thread or net thread
+     */
+    std::optional<std::thread> workerThread;
+
+    /**
+     * @brief Should the net/worker thread be stopped (set to `true` on destruction)
      */
     bool stopThread;
+
+    TaskQueue workerTaskQueue;
+
+    /**
+     * Should only be accessed from the net thread
+     */
+    std::unordered_map<uint64_t, std::promise<RpcResponse>> pendingRequests;
+    uint64_t lastRequestId = 0;
 
   public:
     NetShared(FurnaceGUI* gui);
     virtual ~NetShared();
 
   protected:
+    void runWorkerThread();
     void handleRequest(const NetCommon::Request& reqMessage, msgpack::sbuffer& respondBuffer);
+    void handleResponse(const NetCommon::Response& respMessage);
+    void fulfillRequest(uint64_t id, std::optional<NetCommon::Response>&& message);
 
     /**
      * @brief Download the file from the server
