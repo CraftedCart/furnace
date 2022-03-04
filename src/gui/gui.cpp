@@ -2035,6 +2035,10 @@ void FurnaceGUI::drawNet() {
     } else if (client.has_value()) {
       // We're connected to a session
       ImGui::Text("Joined session");
+
+      ImGui::BeginDisabled(client->isDownloadingFile());
+      if (ImGui::Button("Resync from server")) client->downloadFileAsync();
+      ImGui::EndDisabled();
     } else {
       // We're not in a session - offer to host or connect
 

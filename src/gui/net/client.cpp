@@ -38,7 +38,15 @@ void NetClient::start(const String& address) {
   thread.emplace([this, address]() { runThread(address); });
 }
 
+bool NetClient::isDownloadingFile() const {
+  return downloadingFile;
+}
+
 void NetClient::downloadFileAsync() {
+  assert(!downloadingFile && "Tried to get file even though we're already waiting to get one");
+
+  downloadingFile = true;
+
   taskQueue.enqueue<void>([=]() {
     std::optional<std::vector<uint8_t>> file = rpcCall<std::vector<uint8_t>>(NetCommon::Method::GET_FILE);
     if (!file.has_value()) return;
@@ -51,6 +59,8 @@ void NetClient::downloadFileAsync() {
       if (!gui->getEngine()->load(buf, file->size())) {
         logE("Error loading file gotten from RPC (in downloadFileAsync)\n");
       }
+
+      downloadingFile = false;
     }).get();
   });
 }
@@ -63,7 +73,7 @@ void NetClient::sendActionAsync(const UndoAction& action) {
 
 void NetClient::runThread(const String& address) {
   zmq::context_t zmqContext{1};
-  socket = zmq::socket_t{zmqContext, zmq::socket_type::req};
+  socket = zmq::socket_t{zmqContext, zmq::socket_type::dealer};
 
   try {
     socket.connect(std::string("tcp://") + address);

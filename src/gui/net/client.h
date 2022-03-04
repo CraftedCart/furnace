@@ -53,6 +53,11 @@ class NetClient {
      */
     bool stopThread;
 
+    /**
+     * @brief Are we in the middle of downloading the .fur file from the server?
+     */
+    bool downloadingFile = false;
+
   public:
     NetClient(FurnaceGUI* gui);
     ~NetClient();
@@ -61,6 +66,8 @@ class NetClient {
      * @brief Start the client on another thread
      */
     void start(const String& address);
+
+    bool isDownloadingFile() const;
 
     void downloadFileAsync();
     void sendActionAsync(const UndoAction& action);

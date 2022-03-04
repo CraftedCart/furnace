@@ -93,7 +93,7 @@ void NetServer::start(uint16_t port) {
 
 void NetServer::runThread(uint16_t port) {
   zmq::context_t zmqContext{1};
-  zmq::socket_t socket{zmqContext, zmq::socket_type::rep};
+  zmq::socket_t socket{zmqContext, zmq::socket_type::router};
 
   try {
     socket.bind(std::string("tcp://*:") + std::to_string(port));
@@ -105,6 +105,13 @@ void NetServer::runThread(uint16_t port) {
   while (!stopThread) {
     try {
       // Receive a request from client
+      // First we receive an identifier for the client
+      zmq::message_t requestFrom;
+      while (!socket.recv(requestFrom, zmq::recv_flags::dontwait).has_value()) {
+        if (stopThread) return;
+        std::this_thread::yield();
+      }
+      // Then we receive the client's payload
       zmq::message_t request;
       while (!socket.recv(request, zmq::recv_flags::dontwait).has_value()) {
         if (stopThread) return;
@@ -145,6 +152,12 @@ void NetServer::runThread(uint16_t port) {
       }
 
       // Send the reply to the client
+      // First we send the client identifier we want to send to
+      while (!socket.send(requestFrom, zmq::send_flags::dontwait | zmq::send_flags::sndmore).has_value()) {
+        if (stopThread) return;
+        std::this_thread::yield();
+      }
+      // Then we send the payload to the client
       while (!socket.send(zmq::buffer(respondBuffer.data(), respondBuffer.size()), zmq::send_flags::dontwait).has_value()) {
         if (stopThread) return;
         std::this_thread::yield();
