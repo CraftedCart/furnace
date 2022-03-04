@@ -17,48 +17,19 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef _GUI_NET_SERVER_H
-#define _GUI_NET_SERVER_H
+#include "common.h"
 
-#include <zmq.hpp>
-#include <thread>
-#include <vector>
-#include <optional>
-#include <cstdint>
-
-// Forward declarations
-class FurnaceGUI;
-
-class NetServer {
-  private:
-    /** Non-owning pointer */
-    FurnaceGUI* gui;
-
-    std::optional<std::thread> thread;
-
-    /**
-     * @brief Should the server thread be stopped (set to `true` on destruction)
-     */
-    bool stopThread;
-
-  public:
-    NetServer(FurnaceGUI* gui);
-    ~NetServer();
-
-    /**
-     * @brief Start the server on another thread
-     */
-    void start(uint16_t port);
-
-    // RPC Methods (Need to be public, don't call these directly!) //
-
-    /**
-     * @brief Download the file from the server
-     */
-    std::vector<uint8_t> rpcGetFile();
-
-  private:
-    void runThread(uint16_t port);
-};
-
-#endif
+namespace NetCommon {
+  const char* statusToString(StatusCode code) {
+    switch (code) {
+      case StatusCode::OK:
+        return "Ok";
+      case StatusCode::METHOD_NOT_FOUND:
+        return "RPC method not found";
+      case StatusCode::METHOD_WRONG_ARGS:
+        return "Wrong arguments for RPC method";
+      default:
+        return "Unknown error";
+    }
+  }
+}

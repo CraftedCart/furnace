@@ -205,8 +205,35 @@ else()
 endif()
 
 if (USE_NETWORKING AND BUILD_GUI)
-  add_subdirectory(extern/rpclib EXCLUDE_FROM_ALL)
-  list(APPEND DEPENDENCIES_LIBRARIES rpc)
+  include(FetchContent)
+
+  set(ZMQ_BUILD_TESTS OFF CACHE BOOL "")
+  set(WITH_PERF_TOOL OFF CACHE BOOL "")
+  FetchContent_Declare(zmq
+    GIT_REPOSITORY https://github.com/zeromq/libzmq.git
+    GIT_TAG v4.3.4
+  )
+  FetchContent_MakeAvailable(zmq)
+  list(APPEND DEPENDENCIES_LIBRARIES libzmq-static)
+  list(APPEND DEPENDENCIES_INCLUDE_DIRS "${zmq_SOURCE_DIR}/include")
+
+  set(CPPZMQ_BUILD_TESTS OFF CACHE BOOL "")
+  FetchContent_Declare(cppzmq
+    GIT_REPOSITORY https://github.com/zeromq/cppzmq.git
+    GIT_TAG v4.8.1
+  )
+  FetchContent_MakeAvailable(cppzmq)
+  list(APPEND DEPENDENCIES_INCLUDE_DIRS "${cppzmq_SOURCE_DIR}")
+
+  set(MSGPACK_USE_BOOST OFF CACHE BOOL "")
+  FetchContent_Declare(msgpack
+    GIT_REPOSITORY https://github.com/msgpack/msgpack-c.git
+    GIT_TAG cpp-4.1.0
+  )
+  FetchContent_MakeAvailable(msgpack)
+  list(APPEND DEPENDENCIES_LIBRARIES msgpackc-cxx)
+  list(APPEND DEPENDENCIES_DEFINES MSGPACK_NO_BOOST)
+
   list(APPEND DEPENDENCIES_DEFINES HAVE_NETWORKING)
 endif()
 
@@ -365,6 +392,7 @@ src/gui/task_queue.cpp
 set(NETWORKING_SOURCES
 src/gui/net/server.cpp
 src/gui/net/client.cpp
+src/gui/net/common.cpp
 )
 
 if (APPLE)

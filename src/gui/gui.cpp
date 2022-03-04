@@ -2034,7 +2034,7 @@ void FurnaceGUI::drawNet() {
       ImGui::Text("Hosting session");
     } else if (client.has_value()) {
       // We're connected to a session
-      ImGui::Text("Joined session (%s)", client->getConnectionStateStr());
+      ImGui::Text("Joined session");
     } else {
       // We're not in a session - offer to host or connect
 
@@ -2051,8 +2051,8 @@ void FurnaceGUI::drawNet() {
       if (ImGui::Button("Host")) {
         assert(!server.has_value() && "Hosting server yet a server has already been created?");
 
-        server.emplace(this, sessionOptions.host.port);
-        server->start();
+        server.emplace(this);
+        server->start(sessionOptions.host.port);
       }
 
       ImGui::Separator();
@@ -2061,18 +2061,11 @@ void FurnaceGUI::drawNet() {
 
       ImGui::InputText("Address", &sessionOptions.connect.address);
 
-      ImGui::InputInt("Port", &sessionOptions.host.port);
-      // Clamp port to the uint16 range
-      if (sessionOptions.connect.port < 0) {
-        sessionOptions.connect.port = 0;
-      } else if (sessionOptions.connect.port > 65535) {
-        sessionOptions.connect.port = 65535;
-      }
-
       if (ImGui::Button("Connect")) {
         assert(!client.has_value() && "Connecting yet a client has already been created?");
 
-        client.emplace(this, sessionOptions.connect.address, sessionOptions.connect.port);
+        client.emplace(this);
+        client->start(sessionOptions.connect.address);
         client->downloadFileAsync();
       }
     }

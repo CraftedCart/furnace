@@ -27,12 +27,7 @@
  */
 struct NetSessionOptions {
   struct {
-    String address = "127.0.0.1";
-
-    /**
-     * While you might expect a port to be a `uint16_t`, it need to be an int to use `ImGui::InputInt`.
-     */
-    int port = 7826;
+    String address = "127.0.0.1:7826";
   } connect;
 
   struct {

@@ -17,48 +17,41 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef _GUI_NET_SERVER_H
-#define _GUI_NET_SERVER_H
+#ifndef _GUI_NET_COMMON_H
+#define _GUI_NET_COMMON_H
 
-#include <zmq.hpp>
-#include <thread>
-#include <vector>
-#include <optional>
-#include <cstdint>
+#include "../../ta-utils.h"
+#include <msgpack.hpp>
 
-// Forward declarations
-class FurnaceGUI;
+/**
+ * @brief Stuff shared between client and server
+ */
+namespace NetCommon {
+  enum class StatusCode {
+    OK = 0,
+    METHOD_NOT_FOUND = 1,
+    METHOD_WRONG_ARGS = 2,
+  };
+}
 
-class NetServer {
-  private:
-    /** Non-owning pointer */
-    FurnaceGUI* gui;
+// Needs to be in the global namespace
+MSGPACK_ADD_ENUM(NetCommon::StatusCode);
 
-    std::optional<std::thread> thread;
+namespace NetCommon {
+  using Request = msgpack::type::tuple<
+    String, // methodName
+    msgpack::object // arguments (should be a msgpack array)
+  >;
 
-    /**
-     * @brief Should the server thread be stopped (set to `true` on destruction)
-     */
-    bool stopThread;
+  using Response = msgpack::type::tuple<
+    StatusCode, // status
+    msgpack::object // result (nil if `status` is not `OK`)
+  >;
 
-  public:
-    NetServer(FurnaceGUI* gui);
-    ~NetServer();
-
-    /**
-     * @brief Start the server on another thread
-     */
-    void start(uint16_t port);
-
-    // RPC Methods (Need to be public, don't call these directly!) //
-
-    /**
-     * @brief Download the file from the server
-     */
-    std::vector<uint8_t> rpcGetFile();
-
-  private:
-    void runThread(uint16_t port);
-};
+  /**
+   * @brief Takes a status code and returns a friendly string describing the error
+   */
+  const char* statusToString(StatusCode code);
+}
 
 #endif

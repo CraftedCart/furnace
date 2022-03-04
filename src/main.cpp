@@ -150,7 +150,9 @@ bool pVersion(String) {
   printf("- puNES by FHorse (GPLv2)\n");
   printf("- reSID by Dag Lem (GPLv2)\n");
   printf("- Stella by Stella Team (GPLv2)\n");
-  printf("- rpclib by Tamás Szelei (MIT)\n");
+  printf("- libzmq by ZeroMQ Team (LGPLv3)\n");
+  printf("- cppzmq by ZeroMQ Team (MIT)\n");
+  printf("- msgpack for C++ by msgpack Team (Boost Software License)\n");
   return false;
 }
 

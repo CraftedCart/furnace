@@ -19,59 +19,57 @@
 
 #include "client.h"
 #include "../gui.h"
-#include "../../ta-log.h"
-#include <rpc/rpc_error.h>
 
-NetClient::NetClient(FurnaceGUI* gui, const String& address, uint16_t port) :
-  gui(gui),
-  client(address, port),
-  thread([&]() { runThread(); }) {}
+NetClient::NetClient(FurnaceGUI* gui) :
+  gui(gui) {}
 
-  NetClient::~NetClient() {
+NetClient::~NetClient() {
+  if (thread.has_value()) {
     stopThread = true;
-    thread.join();
+    thread->join();
   }
+}
 
-const char* NetClient::getConnectionStateStr() const {
-  switch (client.get_connection_state()) {
-    case rpc::client::connection_state::initial:
-      return "Waiting to connect...";
-    case rpc::client::connection_state::connected:
-      return "Connected";
-    case rpc::client::connection_state::disconnected:
-      return "Lost connection";
-    case rpc::client::connection_state::reset:
-      return "Connection reset";
-  }
+void NetClient::start(const String& address) {
+  assert(!thread.has_value() && "Tried to start net client even though it was already running");
+
+  // Start the client thread
+  logI("Starting net client\n");
+  thread.emplace([this, address]() { runThread(address); });
 }
 
 void NetClient::downloadFileAsync() {
   taskQueue.enqueue<void>([&]() {
-    try {
-      std::vector<uint8_t> file = client.call("getFile").as<std::vector<uint8_t>>();
+    std::optional<std::vector<uint8_t>> file = rpcCall<std::vector<uint8_t>>("getFile");
+    if (!file.has_value()) return;
 
-      // Copy the file into a new buffer, since `DivEngine::load` expects to be able to `delete[]` it
-      uint8_t* buf = new uint8_t[file.size()];
-      memcpy(buf, file.data(), file.size());
+    // Copy the file into a new buffer, since `DivEngine::load` expects to be able to `delete[]` it
+    uint8_t* buf = new uint8_t[file->size()];
+    memcpy(buf, file->data(), file->size());
 
-      gui->runOnGuiThread<void>([&]() {
-        if (!gui->getEngine()->load(buf, file.size())) {
-          logE("Error loading file gotten from RPC (in downloadFileAsync)\n");
-        }
-      }).get();
-    } catch (rpc::rpc_error& e) {
-      // TODO: Handle errors more user-visibly
-      logE("RPC error (in downloadFileAsync): %s\n", e.what());
-    } catch (rpc::timeout& e) {
-      // TODO: Handle errors more user-visibly
-      logE("RPC timeout (in downloadFileAsync): %s\n", e.what());
-    }
+    gui->runOnGuiThread<void>([&]() {
+      if (!gui->getEngine()->load(buf, file->size())) {
+        logE("Error loading file gotten from RPC (in downloadFileAsync)\n");
+      }
+    }).get();
   });
 }
 
-void NetClient::runThread() {
+void NetClient::runThread(const String& address) {
+  zmq::context_t zmqContext{1};
+  socket = zmq::socket_t{zmqContext, zmq::socket_type::req};
+
+  try {
+    socket.connect(std::string("tcp://") + address);
+  } catch (zmq::error_t& e) {
+    logE("Error connecting to socket: %s\n", e.what());
+    return;
+  }
+
   while (!stopThread) {
     taskQueue.processTasks();
     std::this_thread::yield();
   }
+
+  socket.close();
 }
