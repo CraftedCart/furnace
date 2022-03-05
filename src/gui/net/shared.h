@@ -32,7 +32,7 @@
 
 // Forward declarations
 class FurnaceGUI;
-struct UndoAction;
+namespace EditAction { class Command; }
 
 /**
  * @brief Base class for `NetServer` and `NetClient`
@@ -119,7 +119,8 @@ class NetShared {
      */
     std::vector<uint8_t> recvGetFile();
 
-    virtual msgpack::type::nil_t recvDoAction(const UndoAction& action);
+    msgpack::type::nil_t recvExecCommandWrapper(const msgpack::object& obj);
+    virtual void recvExecCommand(EditAction::Command& cmd);
 };
 
 #endif

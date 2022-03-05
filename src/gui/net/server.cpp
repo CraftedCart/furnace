@@ -33,10 +33,13 @@ void NetServer::start(uint16_t port) {
   thread.emplace([this, port]() { runThread(port); });
 }
 
-void NetServer::sendAction(const UndoAction& action) {
-  taskQueue.enqueue<void>([=]() {
+void NetServer::sendExecCommand(const EditAction::Command& cmd) {
+  msgpack::zone zone;
+  msgpack::object cmdObject = cmd.serialize(zone);
+
+  taskQueue.enqueue<void>([this, zone = std::move(zone), cmdObject = std::move(cmdObject)]() {
     for (const NetCommon::ClientId& client : connectedClients) {
-      rpcCall(client, NetCommon::Method::DO_ACTION, action);
+      rpcCall(client, NetCommon::Method::EXEC_COMMAND, cmdObject);
     }
   });
 }
@@ -116,7 +119,7 @@ void NetServer::runThread(uint16_t port) {
           }
 
           default: {
-            logE("Invalid message kind from server\n");
+            logE("Invalid message kind from client\n");
             break;
           }
         }
@@ -133,15 +136,16 @@ void NetServer::runThread(uint16_t port) {
   socket.close();
 }
 
-msgpack::type::nil_t NetServer::recvDoAction(const UndoAction& action) {
-  msgpack::type::nil_t out = NetShared::recvDoAction(action);
+void NetServer::recvExecCommand(EditAction::Command& cmd) {
+  NetShared::recvExecCommand(cmd);
 
   // Propagate message to other clients
+  msgpack::zone zone;
+  msgpack::object cmdObject = cmd.serialize(zone);
+
   for (const NetCommon::ClientId& client : connectedClients) {
     if (client == currentClient) continue;
 
-    rpcCall(client, NetCommon::Method::DO_ACTION, action);
+    rpcCall(client, NetCommon::Method::EXEC_COMMAND, cmdObject);
   }
-
-  return out;
 }

@@ -20,11 +20,17 @@
 #ifndef _ORDERS_H
 #define _ORDERS_H
 
+#include <cstring> // For memset
+
+#define DIV_MAX_CHANS 128
+#define DIV_MAX_ORDERS 128
+#define DIV_MAX_PATTERNS 256
+
 struct DivOrders {
-  unsigned char ord[DIV_MAX_CHANS][128];
+  unsigned char ord[DIV_MAX_CHANS][DIV_MAX_ORDERS];
 
   DivOrders() {
-    memset(ord,0,DIV_MAX_CHANS*128);
+    memset(ord,0,DIV_MAX_CHANS*DIV_MAX_ORDERS);
   }
 };
 

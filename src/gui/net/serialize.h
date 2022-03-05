@@ -24,6 +24,10 @@
   #include <msgpack.hpp>
 
   #define FURNACE_NET_STRUCT_SERIALIZABLE(...) MSGPACK_DEFINE_MAP(__VA_ARGS__)
+
+  /**
+   * Needs to be defined in the global namespace
+   */
   #define FURNACE_NET_ENUM_SERIALIZABLE(...) MSGPACK_ADD_ENUM(__VA_ARGS__)
 #else
   #define FURNACE_NET_STRUCT_SERIALIZABLE(...)

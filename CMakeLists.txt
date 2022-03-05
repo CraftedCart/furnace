@@ -386,6 +386,7 @@ src/gui/settings.cpp
 src/gui/util.cpp
 src/gui/gui.cpp
 
+src/gui/edit_action.cpp
 src/gui/task_queue.cpp
 )
 

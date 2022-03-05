@@ -2683,15 +2683,6 @@ void FurnaceGUI::makeUndo(ActionType action) {
     undoHist.push_back(s);
     redoHist.clear();
     if (undoHist.size()>settings.maxUndoSteps) undoHist.pop_front();
-
-    // Broadcast the change over the network
-#ifdef HAVE_NETWORKING
-    if (client.has_value()) {
-      client->sendAction(s.action);
-    } else if (server.has_value()) {
-      server->sendAction(s.action);
-    }
-#endif
   }
 }
 
@@ -3085,7 +3076,28 @@ void FurnaceGUI::doRedo() {
   UndoStep& us=redoHist.back();
   undoHist.push_back(us);
 
-  doRedoAction(us.action);
+  modified=true;
+
+  switch (us.action.type) {
+    case GUI_UNDO_CHANGE_ORDER:
+      e->song.ordersLen=us.action.newOrdersLen;
+      for (const UndoOrderData& i: us.action.ord) {
+        e->song.orders.ord[i.chan][i.ord]=i.newVal;
+      }
+      break;
+    case GUI_UNDO_PATTERN_EDIT:
+    case GUI_UNDO_PATTERN_DELETE:
+    case GUI_UNDO_PATTERN_PULL:
+    case GUI_UNDO_PATTERN_PUSH:
+    case GUI_UNDO_PATTERN_CUT:
+    case GUI_UNDO_PATTERN_PASTE:
+      for (const UndoPatternData& i: us.action.pat) {
+        DivPattern* p=e->song.pat[i.chan].getPattern(i.pat,true);
+        p->data[i.row][i.col]=i.newVal;
+      }
+
+      break;
+  }
 
   // Update positioning
   switch (us.action.type) {
@@ -3110,31 +3122,6 @@ void FurnaceGUI::doRedo() {
   }
 
   redoHist.pop_back();
-}
-
-void FurnaceGUI::doRedoAction(const UndoAction& action) {
-  modified=true;
-
-  switch (action.type) {
-    case GUI_UNDO_CHANGE_ORDER:
-      e->song.ordersLen=action.newOrdersLen;
-      for (const UndoOrderData& i: action.ord) {
-        e->song.orders.ord[i.chan][i.ord]=i.newVal;
-      }
-      break;
-    case GUI_UNDO_PATTERN_EDIT:
-    case GUI_UNDO_PATTERN_DELETE:
-    case GUI_UNDO_PATTERN_PULL:
-    case GUI_UNDO_PATTERN_PUSH:
-    case GUI_UNDO_PATTERN_CUT:
-    case GUI_UNDO_PATTERN_PASTE:
-      for (const UndoPatternData& i: action.pat) {
-        DivPattern* p=e->song.pat[i.chan].getPattern(i.pat,true);
-        p->data[i.row][i.col]=i.newVal;
-      }
-
-      break;
-  }
 }
 
 void FurnaceGUI::play(int row) {
@@ -3782,51 +3769,47 @@ void FurnaceGUI::doAction(int what) {
     case GUI_ACTION_ORDERS_LINK:
       changeAllOrders=!changeAllOrders;
       break;
-    case GUI_ACTION_ORDERS_ADD:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->addOrder(false,false);
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
+    case GUI_ACTION_ORDERS_ADD: {
+      EditAction::CommandAddOrder cmd({std::nullopt, e->getOrder() + 1, EditAction::CloneDepth::SHALLOW});
+      doLocalEditCommand(cmd);
       break;
-    case GUI_ACTION_ORDERS_DUPLICATE:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->addOrder(true,false);
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
+    }
+    case GUI_ACTION_ORDERS_DUPLICATE: {
+      EditAction::CommandAddOrder cmd({e->getOrder(), e->getOrder() + 1, EditAction::CloneDepth::SHALLOW});
+      doLocalEditCommand(cmd);
       break;
-    case GUI_ACTION_ORDERS_DEEP_CLONE:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->deepCloneOrder(false);
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
-      if (!e->getWarnings().empty()) {
-        showWarning(e->getWarnings(),GUI_WARN_GENERIC);
-      }
+    }
+    case GUI_ACTION_ORDERS_DEEP_CLONE: {
+      EditAction::CommandAddOrder cmd({e->getOrder(), e->getOrder() + 1, EditAction::CloneDepth::DEEP});
+      doLocalEditCommand(cmd);
       break;
-    case GUI_ACTION_ORDERS_DUPLICATE_END:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->addOrder(true,true);
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
+    }
+    case GUI_ACTION_ORDERS_DUPLICATE_END: {
+      EditAction::CommandAddOrder cmd({e->getOrder(), e->song.ordersLen, EditAction::CloneDepth::SHALLOW});
+      doLocalEditCommand(cmd);
       break;
-    case GUI_ACTION_ORDERS_DEEP_CLONE_END:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->deepCloneOrder(true);
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
-      if (!e->getWarnings().empty()) {
-        showWarning(e->getWarnings(),GUI_WARN_GENERIC);
-      }
+    }
+    case GUI_ACTION_ORDERS_DEEP_CLONE_END: {
+      EditAction::CommandAddOrder cmd({e->getOrder(), e->song.ordersLen, EditAction::CloneDepth::DEEP});
+      doLocalEditCommand(cmd);
       break;
-    case GUI_ACTION_ORDERS_REMOVE:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->deleteOrder();
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
+    }
+    case GUI_ACTION_ORDERS_REMOVE: {
+      EditAction::CommandDeleteOrder cmd({e->getOrder()});
+      doLocalEditCommand(cmd);
       break;
+    }
     case GUI_ACTION_ORDERS_MOVE_UP:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->moveOrderUp();
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
+      if (e->getOrder() > 0) {
+        EditAction::CommandSwapOrders cmd({e->getOrder(), e->getOrder() - 1});
+        doLocalEditCommand(cmd);
+      }
       break;
     case GUI_ACTION_ORDERS_MOVE_DOWN:
-      prepareUndo(GUI_UNDO_CHANGE_ORDER);
-      e->moveOrderDown();
-      makeUndo(GUI_UNDO_CHANGE_ORDER);
+      if (e->getOrder() < e->song.ordersLen - 1) {
+        EditAction::CommandSwapOrders cmd({e->getOrder(), e->getOrder() + 1});
+        doLocalEditCommand(cmd);
+      }
       break;
     case GUI_ACTION_ORDERS_REPLAY:
       e->setOrder(e->getOrder());
@@ -6158,9 +6141,6 @@ FurnaceGUI::FurnaceGUI():
   soloTimeout(0),
   orderEditMode(0),
   orderCursor(-1),
-  loopOrder(-1),
-  loopRow(-1),
-  loopEnd(-1),
   isClipping(0),
   extraChannelButtons(0),
   patNameTarget(-1),
@@ -6241,7 +6221,10 @@ FurnaceGUI::FurnaceGUI():
   bindSetPending(false),
   nextScroll(-1.0f),
   nextAddScroll(0.0f),
-  oldOrdersLen(0) {
+  oldOrdersLen(0),
+  loopOrder(-1),
+  loopRow(-1),
+  loopEnd(-1) {
 
   // octave 1
   /*
@@ -6801,4 +6784,30 @@ FurnaceGUI::FurnaceGUI():
   memset(patChanX,0,sizeof(float)*(DIV_MAX_CHANS+1));
   memset(patChanSlideY,0,sizeof(float)*(DIV_MAX_CHANS+1));
   memset(lastIns,-1,sizeof(int)*DIV_MAX_CHANS);
+}
+
+void FurnaceGUI::doLocalEditCommand(EditAction::Command& cmd) {
+  cmd.exec(this, EditAction::Origin::LOCAL);
+
+  // TODO: Push it to some undo stack or something
+  if (!e->getWarnings().empty()) {
+    showWarning(e->getWarnings(),GUI_WARN_GENERIC);
+  }
+
+  // Broadcast the command over the network
+#ifdef HAVE_NETWORKING
+  if (client.has_value()) {
+    client->sendExecCommand(cmd);
+  } else if (server.has_value()) {
+    server->sendExecCommand(cmd);
+  }
+#endif
+}
+
+void FurnaceGUI::setModified() {
+  modified = true;
+}
+
+void FurnaceGUI::doRemoteEditCommand(EditAction::Command& cmd) {
+  cmd.exec(this, EditAction::Origin::REMOTE);
 }

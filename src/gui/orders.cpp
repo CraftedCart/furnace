@@ -93,16 +93,30 @@ void FurnaceGUI::drawOrders() {
           if (ImGui::Selectable(selID,(orderEditMode!=0 && curOrder==i && orderCursor==j))) {
             if (curOrder==i) {
               if (orderEditMode==0) {
-                prepareUndo(GUI_UNDO_CHANGE_ORDER);
+                std::vector<EditAction::OrderPattern> edits;
+
                 if (changeAllOrders) {
                   for (int k=0; k<e->getTotalChannelCount(); k++) {
-                    if (e->song.orders.ord[k][i]<0x7f) e->song.orders.ord[k][i]++;
+                    if (e->song.orders.ord[k][i]<0x7f) {
+                      edits.push_back(EditAction::OrderPattern {
+                        i,
+                        k,
+                        e->song.orders.ord[k][i] + 1,
+                      });
+                    }
                   }
                 } else {
-                  if (e->song.orders.ord[j][i]<0x7f) e->song.orders.ord[j][i]++;
+                  if (e->song.orders.ord[j][i]<0x7f) {
+                    edits.push_back(EditAction::OrderPattern {
+                      i,
+                      j,
+                      e->song.orders.ord[j][i] + 1,
+                    });
+                  }
                 }
-                e->walkSong(loopOrder,loopRow,loopEnd);
-                makeUndo(GUI_UNDO_CHANGE_ORDER);
+
+                EditAction::CommandSetOrders cmd({edits});
+                doLocalEditCommand(cmd);
               } else {
                 orderCursor=j;
                 curNibble=false;
@@ -126,16 +140,30 @@ void FurnaceGUI::drawOrders() {
           if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
             if (curOrder==i) {
               if (orderEditMode==0) {
-                prepareUndo(GUI_UNDO_CHANGE_ORDER);
+                std::vector<EditAction::OrderPattern> edits;
+
                 if (changeAllOrders) {
                   for (int k=0; k<e->getTotalChannelCount(); k++) {
-                    if (e->song.orders.ord[k][i]>0) e->song.orders.ord[k][i]--;
+                    if (e->song.orders.ord[k][i]>0) {
+                      edits.push_back(EditAction::OrderPattern {
+                        i,
+                        k,
+                        e->song.orders.ord[k][i] - 1,
+                      });
+                    }
                   }
                 } else {
-                  if (e->song.orders.ord[j][i]>0) e->song.orders.ord[j][i]--;
+                  if (e->song.orders.ord[j][i]>0) {
+                    edits.push_back(EditAction::OrderPattern {
+                      i,
+                      j,
+                      e->song.orders.ord[j][i] - 1,
+                    });
+                  }
                 }
-                e->walkSong(loopOrder,loopRow,loopEnd);
-                makeUndo(GUI_UNDO_CHANGE_ORDER);
+
+                EditAction::CommandSetOrders cmd({edits});
+                doLocalEditCommand(cmd);
               } else {
                 orderCursor=j;
                 curNibble=false;

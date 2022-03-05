@@ -22,8 +22,6 @@
 #include <stdio.h>
 #include <vector>
 
-#define DIV_MAX_CHANS 128
-
 #include "../ta-utils.h"
 #include "orders.h"
 #include "instrument.h"

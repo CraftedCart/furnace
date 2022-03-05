@@ -49,10 +49,10 @@ class NetServer : public NetShared {
      */
     void start(uint16_t port);
 
-    void sendAction(const UndoAction& action);
+    void sendExecCommand(const EditAction::Command& cmd);
 
   protected:
-    virtual msgpack::type::nil_t recvDoAction(const UndoAction& action) override;
+    virtual void recvExecCommand(EditAction::Command& cmd) override;
 
   private:
     void runThread(uint16_t port);

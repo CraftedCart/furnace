@@ -49,7 +49,7 @@ class NetClient : public NetShared {
     bool isDownloadingFile() const;
 
     void sendDownloadFile();
-    void sendAction(const UndoAction& action);
+    void sendExecCommand(const EditAction::Command& cmd);
 
   private:
     void runThread(const String& address);

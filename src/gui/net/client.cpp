@@ -63,9 +63,12 @@ void NetClient::sendDownloadFile() {
   });
 }
 
-void NetClient::sendAction(const UndoAction& action) {
-  taskQueue.enqueue<void>([=]() {
-    rpcCall(NetCommon::Method::DO_ACTION, action);
+void NetClient::sendExecCommand(const EditAction::Command& cmd) {
+  msgpack::zone zone;
+  msgpack::object cmdObject = cmd.serialize(zone);
+
+  taskQueue.enqueue<void>([this, zone = std::move(zone), cmdObject = std::move(cmdObject)]() {
+    rpcCall(NetCommon::Method::EXEC_COMMAND, cmdObject);
   });
 }
 

@@ -29,6 +29,7 @@
 #include <mutex>
 #include <map>
 #include <queue>
+#include <optional>
 
 #define addWarning(x) \
   if (warnings.empty()) { \
@@ -483,20 +484,52 @@ class DivEngine {
     // delete sample
     void delSample(int index);
 
-    // add order
-    void addOrder(bool duplicate, bool where);
+    /**
+     * @brief Add a new order
+     *
+     * Example duplicating the current order to the end:
+     * @code
+     * engine->addOrder(engine->getOrder(), engine->song.ordersLen);
+     * @endcode
+     *
+     * @param duplicateFrom If the new order should be a duplicate of an existing one, which order should it duplicate
+     * @param where The index to place the new order at
+     *
+     * @return Whether a new order was added (Adding orders can fail if the order length is already maxed)
+     */
+    bool addOrder(std::optional<int> duplicateFrom, int where);
 
-    // deep clone orders
-    void deepCloneOrder(bool where);
+    /**
+     * @brief Deep clone an order
+     *
+     * @param duplicateFrom Which order should it duplicate
+     * @param where The index to place the new order at
+     *
+     * @return Whether a new order was added (Adding orders can fail if the order length is already maxed)
+     */
+    bool deepCloneOrder(int duplicateFrom, int where);
 
-    // delete order
-    void deleteOrder();
+    /**
+     * @brief Delete an order
+     *
+     * @param which The order index to delete
+     *
+     * @return Whether the order was deleted (Deleting orders can fail if, for example, you try to delete the last
+     *         order)
+     */
+    bool deleteOrder(int which);
 
-    // move order up
-    void moveOrderUp();
-
-    // move order down
-    void moveOrderDown();
+    /**
+     * @brief Swap two orders
+     *
+     * Can be used to move orders up and down, for example
+     *
+     * @param a Order index to swap with `b`
+     * @param b Order index to swap with `a`
+     *
+     * @return Whether the orders were swapped (This can fail if the order indices given were out-of-bounds)
+     */
+    bool swapOrders(int a, int b);
 
     // move thing up
     bool moveInsUp(int which);

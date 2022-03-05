@@ -19,6 +19,7 @@
 
 #include "../engine/engine.h"
 #include "task_queue.h"
+#include "edit_action.h"
 
 #ifdef HAVE_NETWORKING
 #include "net/server.h"
@@ -592,7 +593,7 @@ class FurnaceGUI {
   char finalLayoutPath[4096];
 
   int curIns, curWave, curSample, curOctave, oldRow, oldOrder, oldOrder1, editStep, exportLoops, soloChan, soloTimeout, orderEditMode, orderCursor;
-  int loopOrder, loopRow, loopEnd, isClipping, extraChannelButtons, patNameTarget, newSongCategory;
+  int isClipping, extraChannelButtons, patNameTarget, newSongCategory;
   bool editControlsOpen, ordersOpen, insListOpen, songInfoOpen, patternOpen, insEditOpen;
   bool waveListOpen, waveEditOpen, sampleListOpen, sampleEditOpen, aboutOpen, settingsOpen;
   bool mixerOpen, debugOpen, oscOpen, volMeterOpen, statsOpen, compatFlagsOpen;
@@ -807,7 +808,12 @@ class FurnaceGUI {
 
   const char* getSystemName(DivSystem which);
 
+  void doLocalEditCommand(EditAction::Command& cmd);
+
   public:
+    // Public so CommandSetOrders can access it
+    int loopOrder, loopRow, loopEnd;
+
     void showWarning(String what, FurnaceGUIWarnings type);
     void showError(String what);
     const char* noteName(short note, short octave);
@@ -822,15 +828,8 @@ class FurnaceGUI {
     bool init();
     FurnaceGUI();
 
-    /**
-     * @brief Executes an action
-     *
-     * Does not add it to the undo/redo stack
-     *
-     * This is public so actions can be executed from a network session - still need to figure out how to handle
-     * undo/redo for that...
-     */
-    void doRedoAction(const UndoAction& action);
+    void setModified();
+    void doRemoteEditCommand(EditAction::Command& cmd);
 
     /**
      * @brief Run a task on the GUI thread and return a future for it
