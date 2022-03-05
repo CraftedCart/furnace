@@ -22,7 +22,35 @@
 #include "../ta-log.h"
 
 namespace EditAction {
-  void CommandAddOrder::exec(FurnaceGUI* gui, Origin origin) {
+  void UndoStack::push(UndoStep&& cmd, size_t maxUndoSteps) {
+    commands.resize(currentPoint);
+    commands.push_back(std::forward<UndoStep>(cmd));
+
+    currentPoint++;
+
+    while (commands.size() > maxUndoSteps) {
+      commands.pop_front();
+      currentPoint--;
+    }
+  }
+
+  std::optional<UndoStep*> UndoStack::undoCommand() {
+    // Check if we can undo any more
+    if (currentPoint == 0) return std::nullopt;
+    currentPoint--;
+
+    return &commands[currentPoint];
+  }
+
+  std::optional<UndoStep*> UndoStack::redoCommand() {
+    // Check if we can redo any more
+    if (currentPoint >= commands.size()) return std::nullopt;
+    currentPoint++;
+
+    return &commands[currentPoint - 1];
+  }
+
+  bool CommandAddOrder::exec(FurnaceGUI* gui, Origin origin) {
     bool success;
 
     if (data.depth == CloneDepth::SHALLOW) {
@@ -32,36 +60,40 @@ namespace EditAction {
         success = gui->getEngine()->deepCloneOrder(*data.duplicateFrom, data.where);
       } else {
         logE("Trying to deep clone order without any `duplicateFrom`");
-        return;
+        return false;
       }
     }
 
     if (origin == Origin::LOCAL && success) gui->getEngine()->setOrder(data.where);
-    if (success) gui->setModified();
+
+    return success;
   }
 
   void CommandAddOrder::revert(FurnaceGUI* gui, Origin origin) {
-    if (gui->getEngine()->deleteOrder(data.where)) {
-      gui->setModified();
-    }
+    gui->getEngine()->deleteOrder(data.where);
   }
 
-  void CommandDeleteOrder::exec(FurnaceGUI* gui, Origin origin) {
-    // TODO: Store order data for reverting
-
-    if (gui->getEngine()->deleteOrder(data.which)) {
-      gui->setModified();
+  bool CommandDeleteOrder::exec(FurnaceGUI* gui, Origin origin) {
+    // Store order data for reverting
+    for (int channel = 0; channel < DIV_MAX_CHANS; channel++) {
+      revertData.orderData[channel] = gui->getEngine()->song.orders.ord[channel][data.which];
     }
+
+    return gui->getEngine()->deleteOrder(data.which);
   }
 
   void CommandDeleteOrder::revert(FurnaceGUI* gui, Origin origin) {
-    // TODO
+    // Re-add the order
+    gui->getEngine()->addOrder(std::nullopt, data.which);
+
+    // Re-add the order data
+    for (int channel = 0; channel < DIV_MAX_CHANS; channel++) {
+      gui->getEngine()->song.orders.ord[channel][data.which] = revertData.orderData[channel];
+    }
   }
 
-  void CommandSwapOrders::exec(FurnaceGUI* gui, Origin origin) {
+  bool CommandSwapOrders::exec(FurnaceGUI* gui, Origin origin) {
     if (gui->getEngine()->swapOrders(data.a, data.b)) {
-      gui->setModified();
-
       if (origin == Origin::LOCAL) {
         // Change the current order if the cursor was on an order we just swapped
         if (gui->getEngine()->getOrder() == data.a) {
@@ -71,6 +103,8 @@ namespace EditAction {
         }
       }
     }
+
+    return true;
   }
 
   void CommandSwapOrders::revert(FurnaceGUI* gui, Origin origin) {
@@ -78,7 +112,9 @@ namespace EditAction {
     exec(gui, origin);
   }
 
-  void CommandSetOrders::exec(FurnaceGUI* gui, Origin origin) {
+  bool CommandSetOrders::exec(FurnaceGUI* gui, Origin origin) {
+    revertData.oldPatterns.clear();
+
     for (const OrderPattern& newPattern : data.newPatterns) {
       if (
         newPattern.order < 0 ||
@@ -89,16 +125,29 @@ namespace EditAction {
         newPattern.pattern >= DIV_MAX_PATTERNS
       ) {
         logE("CommandSetOrders got out-of-bounds data");
-        return;
+        return true;
       }
 
+      revertData.oldPatterns.push_back(OrderPattern {
+        newPattern.order,
+        newPattern.channel,
+        gui->getEngine()->song.orders.ord[newPattern.channel][newPattern.order],
+      });
+
       gui->getEngine()->song.orders.ord[newPattern.channel][newPattern.order] = newPattern.pattern;
-      gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
     }
+
+    gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
+
+    return true;
   }
 
   void CommandSetOrders::revert(FurnaceGUI* gui, Origin origin) {
-    // TODO
+    for (const OrderPattern& oldPattern : revertData.oldPatterns) {
+      gui->getEngine()->song.orders.ord[oldPattern.channel][oldPattern.order] = oldPattern.pattern;
+    }
+
+    gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
   }
 
 #if HAVE_NETWORKING

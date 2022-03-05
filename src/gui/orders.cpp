@@ -115,8 +115,9 @@ void FurnaceGUI::drawOrders() {
                   }
                 }
 
-                EditAction::CommandSetOrders cmd({edits});
-                doLocalEditCommand(cmd);
+                doLocalEditCommand(std::make_unique<EditAction::CommandSetOrders>(
+                  EditAction::CommandSetOrders::Data {edits}
+                ));
               } else {
                 orderCursor=j;
                 curNibble=false;
@@ -162,8 +163,9 @@ void FurnaceGUI::drawOrders() {
                   }
                 }
 
-                EditAction::CommandSetOrders cmd({edits});
-                doLocalEditCommand(cmd);
+                doLocalEditCommand(std::make_unique<EditAction::CommandSetOrders>(
+                  EditAction::CommandSetOrders::Data {edits}
+                ));
               } else {
                 orderCursor=j;
                 curNibble=false;

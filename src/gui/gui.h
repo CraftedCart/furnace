@@ -353,14 +353,7 @@ enum FurnaceGUIActions {
 #define FURKMOD_ALT (1<<27)
 #define FURK_MASK 0x40ffffff
 
-struct SelectionPoint {
-  int xCoarse, xFine;
-  int y;
-  SelectionPoint():
-    xCoarse(0), xFine(0), y(0) {}
-};
-
-enum ActionType {
+enum [[deprecated]] ActionType {
   GUI_UNDO_CHANGE_ORDER = 0,
   GUI_UNDO_PATTERN_EDIT = 1,
   GUI_UNDO_PATTERN_DELETE = 2,
@@ -371,7 +364,7 @@ enum ActionType {
 };
 FURNACE_NET_ENUM_SERIALIZABLE(ActionType);
 
-struct UndoPatternData {
+struct [[deprecated]] UndoPatternData {
   int chan, pat, row, col;
   short oldVal, newVal;
 
@@ -389,7 +382,7 @@ struct UndoPatternData {
   FURNACE_NET_STRUCT_SERIALIZABLE(chan, pat, row, col, oldVal, newVal);
 };
 
-struct UndoOrderData {
+struct [[deprecated]] UndoOrderData {
   int chan, ord;
   unsigned char oldVal, newVal;
 
@@ -408,7 +401,7 @@ struct UndoOrderData {
 /**
  * @brief Actual data to perform an undo/redo
  */
-struct UndoAction {
+struct [[deprecated]] UndoAction {
   ActionType type;
   int oldOrdersLen, newOrdersLen;
   int oldPatLen, newPatLen;
@@ -421,13 +414,13 @@ struct UndoAction {
 /**
  * @brief Cursor and order positioning for an undo step
  */
-struct UndoPosition {
+struct [[deprecated]] UndoPosition {
   SelectionPoint cursor, selStart, selEnd;
   int order;
   bool nibble;
 };
 
-struct UndoStep {
+struct [[deprecated]] UndoStep {
   UndoAction action;
   UndoPosition position;
 };
@@ -693,11 +686,13 @@ class FurnaceGUI {
   SelectionPoint sel1, sel2;
   int dummyRows, demandX;
 
-  int oldOrdersLen;
-  DivOrders oldOrders;
-  DivPattern* oldPat[128];
-  std::deque<UndoStep> undoHist;
-  std::deque<UndoStep> redoHist;
+  [[deprecated]] int oldOrdersLen;
+  [[deprecated]] DivOrders oldOrders;
+  [[deprecated]] DivPattern* oldPat[128];
+  [[deprecated]] std::deque<UndoStep> undoHist;
+  [[deprecated]] std::deque<UndoStep> redoHist;
+
+  EditAction::UndoStack undoStack;
 
   float keyHit[DIV_MAX_CHANS];
   int lastIns[DIV_MAX_CHANS];
@@ -769,8 +764,8 @@ class FurnaceGUI {
   void moveCursorTop(bool select);
   void moveCursorBottom(bool select);
   void editAdvance();
-  void prepareUndo(ActionType action);
-  void makeUndo(ActionType action);
+  [[deprecated]] void prepareUndo(ActionType action);
+  [[deprecated]] void makeUndo(ActionType action);
   void doSelectAll();
   void doDelete();
   void doPullDelete();
@@ -808,7 +803,7 @@ class FurnaceGUI {
 
   const char* getSystemName(DivSystem which);
 
-  void doLocalEditCommand(EditAction::Command& cmd);
+  void doLocalEditCommand(std::unique_ptr<EditAction::Command>&& cmd);
 
   public:
     // Public so CommandSetOrders can access it
@@ -828,7 +823,6 @@ class FurnaceGUI {
     bool init();
     FurnaceGUI();
 
-    void setModified();
     void doRemoteEditCommand(EditAction::Command& cmd);
 
     /**

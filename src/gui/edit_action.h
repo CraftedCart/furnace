@@ -21,6 +21,7 @@
 #define _GUI_EDIT_ACTION_H
 
 #include "net/serialize.h"
+#include "../engine/orders.h"
 
 // Forward declarations
 class FurnaceGUI;
@@ -46,7 +47,7 @@ class FurnaceGUI;
     public: \
       T() = default; \
       T(Data data) : data(data) {} \
-      virtual void exec(FurnaceGUI* gui, Origin origin) override; \
+      virtual bool exec(FurnaceGUI* gui, Origin origin) override; \
       virtual void revert(FurnaceGUI* gui, Origin origin) override; \
       \
       virtual msgpack::object serialize(msgpack::zone& z) const override { \
@@ -86,7 +87,7 @@ class FurnaceGUI;
     public: \
       T() = default; \
       T(Data data) : data(data) {} \
-      virtual void exec(FurnaceGUI* gui, Origin origin) override; \
+      virtual bool exec(FurnaceGUI* gui, Origin origin) override; \
       virtual void revert(FurnaceGUI* gui, Origin origin) override;
 #endif
 
@@ -103,7 +104,17 @@ class FurnaceGUI;
     } \
   private:
 
+struct SelectionPoint {
+  int xCoarse, xFine;
+  int y;
+  SelectionPoint():
+    xCoarse(0), xFine(0), y(0) {}
+};
+
 namespace EditAction {
+  /**
+   * @brief Each command has its own entry in this enum
+   */
   enum class Kind {
     ORDER_ADD = 0,
     ORDER_DELETE = 1,
@@ -146,8 +157,11 @@ namespace EditAction {
        * @brief Run the command
        *
        * Used for redoing as well as initially doing
+       *
+       * @return Whether the command made any changes (and should be recorded in the undo history)
        */
-      virtual void exec(FurnaceGUI* gui, Origin origin) = 0;
+      [[nodiscard]]
+      virtual bool exec(FurnaceGUI* gui, Origin origin) = 0;
 
       /**
        * @brief Undo the command
@@ -161,6 +175,86 @@ namespace EditAction {
       virtual std::unique_ptr<Command> clone() const = 0;
   };
 
+  /**
+   * @brief Cursor and order positioning for an undo step
+   */
+  struct UndoPosition {
+    SelectionPoint cursor, selStart, selEnd;
+    int order;
+    bool nibble;
+  };
+
+  struct UndoStep {
+    /**
+     * @brief Call `cmd.revert()` to undo, and `cmd.exec()` to redo
+     */
+    std::unique_ptr<Command> cmd;
+
+    /**
+     * @brief Cursor/order positioning before the command was executed
+     */
+    UndoPosition positionPre;
+  };
+
+  class UndoStack {
+    private:
+      std::deque<UndoStep> commands;
+      size_t currentPoint = 0;
+
+    public:
+      UndoStack() = default;
+
+      /**
+       * @brief Push an item onto the undo stack
+       *
+       * @param step The undo step to push
+       * @param maxUndoSteps If the new undo stack becomes larger than this value, old commands will be discarded
+       */
+      void push(UndoStep&& step, size_t maxUndoSteps);
+
+      /**
+       * @brief Get a step to undo
+       *
+       * The returned value is a non-owning pointer and can become invalidated when pushing new commands onto the stack.
+       *
+       * Usage:
+       * @code
+       * std::optional<EditAction::UndoStep*> step = undoStack.undoCommand();
+       * if (step.has_value()) {
+       *   (*step)->cmd->revert(gui, origin);
+       *
+       *   if (!engine->isPlaying()) {
+       *     cursor = (*step)->positionPre.cursor;
+       *     selStart = (*step)->positionPre.selStart;
+       *     selEnd = (*step)->positionPre.selEnd;
+       *     curNibble = (*step)->positionPre.nibble;
+       *     updateScroll(cursor.y);
+       *     e->setOrder((*step)->positionPre.order);
+       *   }
+       * }
+       * @endcode
+       */
+      [[nodiscard]]
+      std::optional<UndoStep*> undoCommand();
+
+      /**
+       * @brief Get a step to redo
+       *
+       * The returned value is a non-owning pointer and can become invalidated when pushing new commands onto the stack.
+       *
+       * Usage:
+       * @code
+       * std::optional<EditAction::UndoStep*> step = undoStack.redoCommand();
+       * if (step.has_value()) (*step)->cmd->exec(gui, origin);
+       * @endcode
+       */
+      [[nodiscard]]
+      std::optional<UndoStep*> redoCommand();
+  };
+
+  /**
+   * @brief Add or duplicate an order
+   */
   class CommandAddOrder : public Command {
     FURNACE_COMMAND_SIMPLE_IMPL(CommandAddOrder, Kind::ORDER_ADD,
       std::optional<int> duplicateFrom;
@@ -172,6 +266,9 @@ namespace EditAction {
     FURNACE_COMMAND_SIMPLE_CLONE(CommandAddOrder);
   };
 
+  /**
+   * @brief Delete an order
+   */
   class CommandDeleteOrder : public Command {
     FURNACE_COMMAND_SIMPLE_IMPL(CommandDeleteOrder, Kind::ORDER_DELETE,
       int which;
@@ -179,8 +276,17 @@ namespace EditAction {
       FURNACE_NET_STRUCT_SERIALIZABLE(which);
     );
     FURNACE_COMMAND_SIMPLE_CLONE(CommandDeleteOrder);
+
+    struct {
+      unsigned char orderData[DIV_MAX_CHANS];
+    } revertData;
   };
 
+  /**
+   * @brief Swap two orders
+   *
+   * Used for shifting orders up/down
+   */
   class CommandSwapOrders : public Command {
     FURNACE_COMMAND_SIMPLE_IMPL(CommandSwapOrders, Kind::ORDER_SWAP,
       int a;
@@ -191,6 +297,9 @@ namespace EditAction {
     FURNACE_COMMAND_SIMPLE_CLONE(CommandSwapOrders);
   };
 
+  /**
+   * @brief Set order patterns
+   */
   class CommandSetOrders : public Command {
     FURNACE_COMMAND_SIMPLE_IMPL(CommandSetOrders, Kind::ORDER_SET,
       std::vector<OrderPattern> newPatterns;
@@ -198,6 +307,10 @@ namespace EditAction {
       FURNACE_NET_STRUCT_SERIALIZABLE(newPatterns);
     );
     FURNACE_COMMAND_SIMPLE_CLONE(CommandSetOrders);
+
+    struct {
+      std::vector<OrderPattern> oldPatterns;
+    } revertData;
   };
 
 #if HAVE_NETWORKING

@@ -3035,93 +3035,32 @@ void FurnaceGUI::doPaste() {
 }
 
 void FurnaceGUI::doUndo() {
-  if (undoHist.empty()) return;
-  UndoStep& us=undoHist.back();
-  redoHist.push_back(us);
-  modified=true;
+  std::optional<EditAction::UndoStep*> step = undoStack.undoCommand();
+  if (step.has_value()) {
+    (*step)->cmd->revert(this, EditAction::Origin::LOCAL);
+    modified = true;
 
-  switch (us.action.type) {
-    case GUI_UNDO_CHANGE_ORDER:
-      e->song.ordersLen=us.action.oldOrdersLen;
-      for (UndoOrderData& i: us.action.ord) {
-        e->song.orders.ord[i.chan][i.ord]=i.oldVal;
-      }
-      break;
-    case GUI_UNDO_PATTERN_EDIT:
-    case GUI_UNDO_PATTERN_DELETE:
-    case GUI_UNDO_PATTERN_PULL:
-    case GUI_UNDO_PATTERN_PUSH:
-    case GUI_UNDO_PATTERN_CUT:
-    case GUI_UNDO_PATTERN_PASTE:
-      for (UndoPatternData& i: us.action.pat) {
-        DivPattern* p=e->song.pat[i.chan].getPattern(i.pat,true);
-        p->data[i.row][i.col]=i.oldVal;
-      }
-      if (!e->isPlaying()) {
-        cursor=us.position.cursor;
-        selStart=us.position.selStart;
-        selEnd=us.position.selEnd;
-        curNibble=us.position.nibble;
-        updateScroll(cursor.y);
-        e->setOrder(us.position.order);
-      }
-      break;
+    if (!e->isPlaying()) {
+      cursor = (*step)->positionPre.cursor;
+      selStart = (*step)->positionPre.selStart;
+      selEnd = (*step)->positionPre.selEnd;
+      curNibble = (*step)->positionPre.nibble;
+      updateScroll(cursor.y);
+      e->setOrder((*step)->positionPre.order);
+    }
+
+    // TODO: Broadcast undo over the network
   }
-
-  undoHist.pop_back();
 }
 
 void FurnaceGUI::doRedo() {
-  if (redoHist.empty()) return;
-  UndoStep& us=redoHist.back();
-  undoHist.push_back(us);
+  std::optional<EditAction::UndoStep*> step = undoStack.redoCommand();
+  if (step.has_value()) {
+    bool didModify = (*step)->cmd->exec(this, EditAction::Origin::LOCAL);
+    if (didModify) modified = true;
 
-  modified=true;
-
-  switch (us.action.type) {
-    case GUI_UNDO_CHANGE_ORDER:
-      e->song.ordersLen=us.action.newOrdersLen;
-      for (const UndoOrderData& i: us.action.ord) {
-        e->song.orders.ord[i.chan][i.ord]=i.newVal;
-      }
-      break;
-    case GUI_UNDO_PATTERN_EDIT:
-    case GUI_UNDO_PATTERN_DELETE:
-    case GUI_UNDO_PATTERN_PULL:
-    case GUI_UNDO_PATTERN_PUSH:
-    case GUI_UNDO_PATTERN_CUT:
-    case GUI_UNDO_PATTERN_PASTE:
-      for (const UndoPatternData& i: us.action.pat) {
-        DivPattern* p=e->song.pat[i.chan].getPattern(i.pat,true);
-        p->data[i.row][i.col]=i.newVal;
-      }
-
-      break;
+    // TODO: Broadcast redo over the network
   }
-
-  // Update positioning
-  switch (us.action.type) {
-    case GUI_UNDO_CHANGE_ORDER:
-      break;
-    case GUI_UNDO_PATTERN_EDIT:
-    case GUI_UNDO_PATTERN_DELETE:
-    case GUI_UNDO_PATTERN_PULL:
-    case GUI_UNDO_PATTERN_PUSH:
-    case GUI_UNDO_PATTERN_CUT:
-    case GUI_UNDO_PATTERN_PASTE:
-      if (!e->isPlaying()) {
-        cursor=us.position.cursor;
-        selStart=us.position.selStart;
-        selEnd=us.position.selEnd;
-        curNibble=us.position.nibble;
-        updateScroll(cursor.y);
-        e->setOrder(us.position.order);
-      }
-
-      break;
-  }
-
-  redoHist.pop_back();
 }
 
 void FurnaceGUI::play(int row) {
@@ -3770,45 +3709,54 @@ void FurnaceGUI::doAction(int what) {
       changeAllOrders=!changeAllOrders;
       break;
     case GUI_ACTION_ORDERS_ADD: {
-      EditAction::CommandAddOrder cmd({std::nullopt, e->getOrder() + 1, EditAction::CloneDepth::SHALLOW});
-      doLocalEditCommand(cmd);
+      doLocalEditCommand(std::make_unique<EditAction::CommandAddOrder>(
+        EditAction::CommandAddOrder::Data {std::nullopt, e->getOrder() + 1, EditAction::CloneDepth::SHALLOW}
+      ));
       break;
     }
     case GUI_ACTION_ORDERS_DUPLICATE: {
       EditAction::CommandAddOrder cmd({e->getOrder(), e->getOrder() + 1, EditAction::CloneDepth::SHALLOW});
-      doLocalEditCommand(cmd);
+      doLocalEditCommand(std::make_unique<EditAction::CommandAddOrder>(
+        EditAction::CommandAddOrder::Data {e->getOrder(), e->getOrder() + 1, EditAction::CloneDepth::SHALLOW}
+      ));
       break;
     }
     case GUI_ACTION_ORDERS_DEEP_CLONE: {
-      EditAction::CommandAddOrder cmd({e->getOrder(), e->getOrder() + 1, EditAction::CloneDepth::DEEP});
-      doLocalEditCommand(cmd);
+      doLocalEditCommand(std::make_unique<EditAction::CommandAddOrder>(
+        EditAction::CommandAddOrder::Data {e->getOrder(), e->getOrder() + 1, EditAction::CloneDepth::DEEP}
+      ));
       break;
     }
     case GUI_ACTION_ORDERS_DUPLICATE_END: {
-      EditAction::CommandAddOrder cmd({e->getOrder(), e->song.ordersLen, EditAction::CloneDepth::SHALLOW});
-      doLocalEditCommand(cmd);
+      doLocalEditCommand(std::make_unique<EditAction::CommandAddOrder>(
+        EditAction::CommandAddOrder::Data {e->getOrder(), e->song.ordersLen, EditAction::CloneDepth::SHALLOW}
+      ));
       break;
     }
     case GUI_ACTION_ORDERS_DEEP_CLONE_END: {
-      EditAction::CommandAddOrder cmd({e->getOrder(), e->song.ordersLen, EditAction::CloneDepth::DEEP});
-      doLocalEditCommand(cmd);
+      doLocalEditCommand(std::make_unique<EditAction::CommandAddOrder>(
+        EditAction::CommandAddOrder::Data {e->getOrder(), e->song.ordersLen, EditAction::CloneDepth::DEEP}
+      ));
       break;
     }
     case GUI_ACTION_ORDERS_REMOVE: {
-      EditAction::CommandDeleteOrder cmd({e->getOrder()});
-      doLocalEditCommand(cmd);
+      doLocalEditCommand(std::make_unique<EditAction::CommandDeleteOrder>(
+        EditAction::CommandDeleteOrder::Data { e->getOrder() }
+      ));
       break;
     }
     case GUI_ACTION_ORDERS_MOVE_UP:
       if (e->getOrder() > 0) {
-        EditAction::CommandSwapOrders cmd({e->getOrder(), e->getOrder() - 1});
-        doLocalEditCommand(cmd);
+        doLocalEditCommand(std::make_unique<EditAction::CommandSwapOrders>(
+          EditAction::CommandSwapOrders::Data {e->getOrder(), e->getOrder() - 1}
+        ));
       }
       break;
     case GUI_ACTION_ORDERS_MOVE_DOWN:
       if (e->getOrder() < e->song.ordersLen - 1) {
-        EditAction::CommandSwapOrders cmd({e->getOrder(), e->getOrder() + 1});
-        doLocalEditCommand(cmd);
+        doLocalEditCommand(std::make_unique<EditAction::CommandSwapOrders>(
+          EditAction::CommandSwapOrders::Data {e->getOrder(), e->getOrder() + 1}
+        ));
       }
       break;
     case GUI_ACTION_ORDERS_REPLAY:
@@ -6786,28 +6734,42 @@ FurnaceGUI::FurnaceGUI():
   memset(lastIns,-1,sizeof(int)*DIV_MAX_CHANS);
 }
 
-void FurnaceGUI::doLocalEditCommand(EditAction::Command& cmd) {
-  cmd.exec(this, EditAction::Origin::LOCAL);
+void FurnaceGUI::doLocalEditCommand(std::unique_ptr<EditAction::Command>&& cmd) {
+  EditAction::UndoPosition positionPre;
+  positionPre.cursor = cursor;
+  positionPre.selStart = selStart;
+  positionPre.selEnd = selEnd;
+  positionPre.order = e->getOrder();
+  positionPre.nibble = curNibble;
 
-  // TODO: Push it to some undo stack or something
+  bool didModify = cmd->exec(this, EditAction::Origin::LOCAL);
+
   if (!e->getWarnings().empty()) {
     showWarning(e->getWarnings(),GUI_WARN_GENERIC);
   }
 
-  // Broadcast the command over the network
-#ifdef HAVE_NETWORKING
-  if (client.has_value()) {
-    client->sendExecCommand(cmd);
-  } else if (server.has_value()) {
-    server->sendExecCommand(cmd);
-  }
-#endif
-}
+  if (didModify) {
+    modified = true;
 
-void FurnaceGUI::setModified() {
-  modified = true;
+    // Broadcast the command over the network
+#ifdef HAVE_NETWORKING
+    if (client.has_value()) {
+      client->sendExecCommand(*cmd);
+    } else if (server.has_value()) {
+      server->sendExecCommand(*cmd);
+    }
+#endif
+
+    // Push the command into the undo stack if it made any changes
+    EditAction::UndoStep step{
+      std::move(cmd),
+      positionPre,
+    };
+    undoStack.push(std::move(step), settings.maxUndoSteps);
+  }
 }
 
 void FurnaceGUI::doRemoteEditCommand(EditAction::Command& cmd) {
-  cmd.exec(this, EditAction::Origin::REMOTE);
+  bool didModify = cmd.exec(this, EditAction::Origin::REMOTE);
+  if (didModify) modified = true;
 }
