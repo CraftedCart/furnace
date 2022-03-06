@@ -17,27 +17,56 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+#ifndef _ENGINE_PATTERN_H
+#define _ENGINE_PATTERN_H
+
 #include "safeReader.h"
+
+/**
+ * @brief The maximum number of rows a pattern can have
+ */
+#define DIV_PATTERN_MAX_ROWS 256
+
+/**
+ * @brief The maximum number of "types" a pattern can have
+ *
+ * "types" perhaps isn't the best name for this - see the documentation for `DivPattern::data` for more info on what it
+ * is.
+ */
+#define DIV_PATTERN_MAX_TYPES 32
 
 struct DivPattern {
   String name;
-  short data[256][32];
+
+  /**
+   * @brief Pattern data, including notes, instruments, volumes, effects
+   *
+   * `data` goes as follows: `data[ROW][TYPE]`
+   *
+   * TYPE is:
+   * - `0`: note
+   * - `1`: octave
+   * - `2`: instrument
+   * - `3`: volume
+   * - `4-5+`: effect/effect value
+   */
+  short data[DIV_PATTERN_MAX_ROWS][DIV_PATTERN_MAX_TYPES];
+
+  /**
+   * @brief Copy this pattern to `dest`
+   */
   void copyOn(DivPattern* dest);
-  SafeReader* compile(int len=256, int fxRows=1);
+
+  SafeReader* compile(int len=DIV_PATTERN_MAX_ROWS, int fxRows=1);
   DivPattern();
 };
 
 struct DivChannelData {
   unsigned char effectRows;
-  // data goes as follows: data[ROW][TYPE]
-  // TYPE is:
-  // 0: note
-  // 1: octave
-  // 2: instrument
-  // 3: volume
-  // 4-5+: effect/effect value
   DivPattern* data[128];
   DivPattern* getPattern(int index, bool create);
   void wipePatterns();
   DivChannelData();
 };
+
+#endif

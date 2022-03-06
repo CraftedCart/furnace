@@ -120,6 +120,7 @@ namespace EditAction {
     ORDER_DELETE = 1,
     ORDER_SWAP = 2,
     ORDER_SET = 3,
+    PATTERN_SET_DATA = 4,
   };
 
   /**
@@ -144,6 +145,24 @@ namespace EditAction {
     int pattern;
 
     FURNACE_NET_STRUCT_SERIALIZABLE(order, channel, pattern);
+  };
+
+  /**
+   * @brief A single edit that should be applied to a pattern
+   *
+   * Applying the edit is pretty much doing...
+   * @code
+   * pattern->data[row][type] = newValue;
+   * @endcode
+   */
+  struct PatternDataEdit {
+    int channel;
+    unsigned char patternIndex;
+    int row;
+    int type;
+    short newValue;
+
+    FURNACE_NET_STRUCT_SERIALIZABLE(channel, patternIndex, row, type, newValue);
   };
 
   /**
@@ -310,6 +329,22 @@ namespace EditAction {
 
     struct {
       std::vector<OrderPattern> oldPatterns;
+    } revertData;
+  };
+
+  /**
+   * @brief Set some data in a pattern
+   */
+  class CommandSetPatternData : public Command {
+    FURNACE_COMMAND_SIMPLE_IMPL(CommandSetPatternData, Kind::PATTERN_SET_DATA,
+      std::vector<PatternDataEdit> newPatternData;
+
+      FURNACE_NET_STRUCT_SERIALIZABLE(newPatternData);
+    );
+    FURNACE_COMMAND_SIMPLE_CLONE(CommandSetPatternData);
+
+    struct {
+      std::vector<PatternDataEdit> oldPatternData;
     } revertData;
   };
 

@@ -812,7 +812,20 @@ class FurnaceGUI {
     void showWarning(String what, FurnaceGUIWarnings type);
     void showError(String what);
     const char* noteName(short note, short octave);
+
+    /**
+     * @brief Decodes a note string into the note + octave
+     *
+     * Eg: `C-3` will store the value for note C into `note`, and the value for octave 3 into `octave`.
+     *
+     * @param what 3 character string to parse
+     * @param note Where to store the parsed note
+     * @param note Where to store the parsed octave
+     *
+     * @return Whether decoding succeeded
+     */
     bool decodeNote(const char* what, short& note, short& octave);
+
     void bindEngine(DivEngine* eng);
     DivEngine* getEngine();
     void updateScroll(int amount);

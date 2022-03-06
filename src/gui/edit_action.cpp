@@ -115,6 +115,8 @@ namespace EditAction {
   bool CommandSetOrders::exec(FurnaceGUI* gui, Origin origin) {
     revertData.oldPatterns.clear();
 
+    bool didModify = false;
+
     for (const OrderPattern& newPattern : data.newPatterns) {
       if (
         newPattern.order < 0 ||
@@ -125,26 +127,94 @@ namespace EditAction {
         newPattern.pattern >= DIV_MAX_PATTERNS
       ) {
         logE("CommandSetOrders got out-of-bounds data");
-        return true;
+        return didModify;
       }
 
-      revertData.oldPatterns.push_back(OrderPattern {
-        newPattern.order,
-        newPattern.channel,
-        gui->getEngine()->song.orders.ord[newPattern.channel][newPattern.order],
-      });
+      int oldPattern = gui->getEngine()->song.orders.ord[newPattern.channel][newPattern.order];
 
-      gui->getEngine()->song.orders.ord[newPattern.channel][newPattern.order] = newPattern.pattern;
+      if (oldPattern != newPattern.pattern) {
+        revertData.oldPatterns.push_back(OrderPattern {
+          newPattern.order,
+          newPattern.channel,
+          oldPattern,
+        });
+        gui->getEngine()->song.orders.ord[newPattern.channel][newPattern.order] = newPattern.pattern;
+
+        didModify = true;
+      }
     }
 
-    gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
+    if (didModify) {
+      gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
+    }
 
-    return true;
+    return didModify;
   }
 
   void CommandSetOrders::revert(FurnaceGUI* gui, Origin origin) {
     for (const OrderPattern& oldPattern : revertData.oldPatterns) {
       gui->getEngine()->song.orders.ord[oldPattern.channel][oldPattern.order] = oldPattern.pattern;
+    }
+
+    gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
+  }
+
+  bool CommandSetPatternData::exec(FurnaceGUI* gui, Origin origin) {
+    revertData.oldPatternData.clear();
+
+    bool didModify = false;
+
+    for (const PatternDataEdit& edit : data.newPatternData) {
+      if (
+        edit.channel < 0 ||
+        edit.channel >= DIV_MAX_CHANS ||
+        edit.patternIndex < 0 ||
+        edit.patternIndex >= DIV_MAX_PATTERNS ||
+        edit.row < 0 ||
+        edit.row >= DIV_PATTERN_MAX_ROWS ||
+        edit.type < 0 ||
+        edit.type >= DIV_PATTERN_MAX_TYPES
+      ) {
+        logE("CommandSetPatternData got out-of-bounds data");
+        return didModify;
+      }
+
+      DivPattern* pattern = gui
+        ->getEngine()
+        ->song
+        .pat[edit.channel]
+        .getPattern(edit.patternIndex, true);
+
+      short oldValue = pattern->data[edit.row][edit.type];
+
+      if (oldValue != edit.newValue) {
+        // Store the current value before we mutate it, so we can `revert()` it
+        revertData.oldPatternData.push_back(PatternDataEdit {
+            edit.channel,
+            edit.patternIndex,
+            edit.row,
+            edit.type,
+            oldValue,
+        });
+
+        pattern->data[edit.row][edit.type] = edit.newValue;
+
+        didModify = true;
+      }
+    }
+
+    return didModify;
+  }
+
+  void CommandSetPatternData::revert(FurnaceGUI* gui, Origin origin) {
+    for (const PatternDataEdit& edit : revertData.oldPatternData) {
+      DivPattern* pattern = gui
+        ->getEngine()
+        ->song
+        .pat[edit.channel]
+        .getPattern(edit.patternIndex, true);
+
+      pattern->data[edit.row][edit.type] = edit.newValue;
     }
 
     gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
@@ -183,10 +253,16 @@ namespace EditAction {
           obj.convert(cmd);
           return cmd;
         }
+        case Kind::PATTERN_SET_DATA: {
+          std::unique_ptr<CommandSetPatternData> cmd = std::make_unique<CommandSetPatternData>();
+          obj.convert(cmd);
+          return cmd;
+        }
         default:
           return std::nullopt;
       }
     } catch (msgpack::type_error& e) {
+      logE("Error deserializing command: %s\n", e.what());
       return std::nullopt;
     }
   }

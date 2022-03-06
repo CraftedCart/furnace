@@ -2921,8 +2921,30 @@ void FurnaceGUI::doCopy(bool cut) {
 }
 
 void FurnaceGUI::doPaste() {
+  // As a reference, here's some examples of what can be expected in the clipboard
+  //
+  // org.tildearrow.furnace - Pattern Data (61)
+  // 0
+  // C-300......|E-300......|
+  // ...........|F-3007F010A|
+  //
+  ///////////////////////////////////////////////////
+  //
+  // org.tildearrow.furnace - Pattern Data (61)
+  // 0
+  // C-300......|E-300|
+  // ...........|F-300|
+  //
+  ///////////////////////////////////////////////////
+  //
+  // org.tildearrow.furnace - Pattern Data (61)
+  // 2
+  // ......|...|
+  // 7F010A|...|
+
   finishSelection();
-  prepareUndo(GUI_UNDO_PATTERN_PASTE);
+
+  // Try fetch the clipboard text
   char* clipText=SDL_GetClipboardText();
   if (clipText!=NULL) {
     if (clipText[0]) {
@@ -2930,6 +2952,8 @@ void FurnaceGUI::doPaste() {
     }
     SDL_free(clipText);
   }
+
+  // Split the string into lines
   std::vector<String> data;
   String tempS;
   for (char i: clipboard) {
@@ -2946,7 +2970,12 @@ void FurnaceGUI::doPaste() {
   int startOff=-1;
   bool invalidData=false;
   if (data.size()<2) return;
+
+  // The first line, we expect to see a header
   if (data[0]!=fmt::sprintf("org.tildearrow.furnace - Pattern Data (%d)",DIV_ENGINE_VERSION)) return;
+
+  // The second line is the starting offset (Eg: `0` for note, `1` for octave, `2` for instrument, `3` for volume, `4`
+  // for effect, `5` for effect value, etc. for more effects)
   if (sscanf(data[1].c_str(),"%d",&startOff)!=1) return;
   if (startOff<0) return;
 
@@ -2955,15 +2984,24 @@ void FurnaceGUI::doPaste() {
   int j=cursor.y;
   char note[4];
   int ord=e->getOrder();
+
+  std::vector<EditAction::PatternDataEdit> editsToMake;
+
+  // Loop over the rest of the lines
   for (size_t i=2; i<data.size() && j<e->song.patLen; i++) {
     size_t charPos=0;
+
+    // iCoarse is the column/channel we are in
     int iCoarse=cursor.xCoarse;
+
+    // iFine is what aspect in the column we are in (note, instrument, volume, effects...)
     int iFine=(startOff>2 && cursor.xFine>2)?(((cursor.xFine-1)&(~1))|1):startOff;
 
     String& line=data[i];
 
     while (charPos<line.size() && iCoarse<lastChannel) {
-      DivPattern* pat=e->song.pat[iCoarse].getPattern(e->song.orders.ord[iCoarse][ord],true);
+      unsigned char patternIndex = e->song.orders.ord[iCoarse][ord];
+
       if (line[charPos]=='|') {
         iCoarse++;
         if (iCoarse<lastChannel) while (!e->song.chanShow[iCoarse]) {
@@ -2992,7 +3030,12 @@ void FurnaceGUI::doPaste() {
         note[2]=line[charPos++];
         note[3]=0;
 
-        if (!decodeNote(note,pat->data[j][0],pat->data[j][1])) {
+        short parsedNote;
+        short parsedOctave;
+        if (decodeNote(note, parsedNote, parsedOctave)) {
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, 0, parsedNote });
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, 1, parsedOctave });
+        } else {
           invalidData=true;
           break;
         }
@@ -3010,14 +3053,16 @@ void FurnaceGUI::doPaste() {
         note[2]=0;
 
         if (strcmp(note,"..")==0) {
-          pat->data[j][iFine+1]=-1;
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, -1 });
         } else {
           unsigned int val=0;
           if (sscanf(note,"%2X",&val)!=1) {
             invalidData=true;
             break;
           }
-          if (iFine<(3+e->song.pat[iCoarse].effectRows*2)) pat->data[j][iFine+1]=val;
+          if (iFine<(3+e->song.pat[iCoarse].effectRows*2)) {
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, (short) val });
+          }
         }
       }
       iFine++;
@@ -3031,7 +3076,10 @@ void FurnaceGUI::doPaste() {
     j++;
   }
 
-  makeUndo(GUI_UNDO_PATTERN_PASTE);
+  // Build a command from the list-of-edits and run it
+  doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+    EditAction::CommandSetPatternData::Data { std::move(editsToMake) }
+  ));
 }
 
 void FurnaceGUI::doUndo() {
