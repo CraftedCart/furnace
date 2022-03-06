@@ -3118,6 +3118,15 @@ void FurnaceGUI::doRedo() {
     bool didModify = (*step)->cmd->exec(this, EditAction::Origin::LOCAL);
     if (didModify) modified = true;
 
+    if (!e->isPlaying()) {
+      cursor = (*step)->positionPost.cursor;
+      selStart = (*step)->positionPost.selStart;
+      selEnd = (*step)->positionPost.selEnd;
+      curNibble = (*step)->positionPost.nibble;
+      updateScroll(cursor.y);
+      e->setOrder((*step)->positionPost.order);
+    }
+
     // TODO: Broadcast redo over the network
   }
 }
@@ -6803,6 +6812,13 @@ void FurnaceGUI::doLocalEditCommand(std::unique_ptr<EditAction::Command>&& cmd) 
 
   bool didModify = cmd->exec(this, EditAction::Origin::LOCAL);
 
+  EditAction::UndoPosition positionPost;
+  positionPost.cursor = cursor;
+  positionPost.selStart = selStart;
+  positionPost.selEnd = selEnd;
+  positionPost.nibble = curNibble;
+  positionPost.order = e->getOrder();
+
   if (!e->getWarnings().empty()) {
     showWarning(e->getWarnings(),GUI_WARN_GENERIC);
   }
@@ -6823,6 +6839,7 @@ void FurnaceGUI::doLocalEditCommand(std::unique_ptr<EditAction::Command>&& cmd) 
     EditAction::UndoStep step{
       std::move(cmd),
       positionPre,
+      positionPost,
     };
     undoStack.push(std::move(step), settings.maxUndoSteps);
   }

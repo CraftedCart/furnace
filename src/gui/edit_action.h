@@ -213,6 +213,11 @@ namespace EditAction {
      * @brief Cursor/order positioning before the command was executed
      */
     UndoPosition positionPre;
+
+    /**
+     * @brief Cursor/order positioning after the command was executed
+     */
+    UndoPosition positionPost;
   };
 
   class UndoStack {
@@ -248,7 +253,7 @@ namespace EditAction {
        *     selEnd = (*step)->positionPre.selEnd;
        *     curNibble = (*step)->positionPre.nibble;
        *     updateScroll(cursor.y);
-       *     e->setOrder((*step)->positionPre.order);
+       *     engine->setOrder((*step)->positionPre.order);
        *   }
        * }
        * @endcode
@@ -264,7 +269,18 @@ namespace EditAction {
        * Usage:
        * @code
        * std::optional<EditAction::UndoStep*> step = undoStack.redoCommand();
-       * if (step.has_value()) (*step)->cmd->exec(gui, origin);
+       * if (step.has_value()) {
+       *   (*step)->cmd->exec(gui, origin);
+       *
+       *   if (!engine->isPlaying()) {
+       *     cursor = (*step)->positionPost.cursor;
+       *     selStart = (*step)->positionPost.selStart;
+       *     selEnd = (*step)->positionPost.selEnd;
+       *     curNibble = (*step)->positionPost.nibble;
+       *     updateScroll(cursor.y);
+       *     engine->setOrder((*step)->positionPost.order);
+       *   }
+       * }
        * @endcode
        */
       [[nodiscard]]
