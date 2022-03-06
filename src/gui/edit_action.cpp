@@ -50,6 +50,11 @@ namespace EditAction {
     return &commands[currentPoint - 1];
   }
 
+  void UndoStack::clear() {
+    commands.clear();
+    currentPoint = 0;
+  }
+
   bool CommandAddOrder::exec(FurnaceGUI* gui, Origin origin) {
     bool success;
 

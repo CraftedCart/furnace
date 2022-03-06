@@ -353,78 +353,6 @@ enum FurnaceGUIActions {
 #define FURKMOD_ALT (1<<27)
 #define FURK_MASK 0x40ffffff
 
-enum [[deprecated]] ActionType {
-  GUI_UNDO_CHANGE_ORDER = 0,
-  GUI_UNDO_PATTERN_EDIT = 1,
-  GUI_UNDO_PATTERN_DELETE = 2,
-  GUI_UNDO_PATTERN_PULL = 3,
-  GUI_UNDO_PATTERN_PUSH = 4,
-  GUI_UNDO_PATTERN_CUT = 5,
-  GUI_UNDO_PATTERN_PASTE = 6
-};
-FURNACE_NET_ENUM_SERIALIZABLE(ActionType);
-
-struct [[deprecated]] UndoPatternData {
-  int chan, pat, row, col;
-  short oldVal, newVal;
-
-  /** Need a default constructor for serialization */
-  UndoPatternData() = default;
-
-  UndoPatternData(int c, int p, int r, int co, short v1, short v2):
-    chan(c),
-    pat(p),
-    row(r),
-    col(co),
-    oldVal(v1),
-    newVal(v2) {}
-
-  FURNACE_NET_STRUCT_SERIALIZABLE(chan, pat, row, col, oldVal, newVal);
-};
-
-struct [[deprecated]] UndoOrderData {
-  int chan, ord;
-  unsigned char oldVal, newVal;
-
-  /** Need a default constructor for serialization */
-  UndoOrderData() = default;
-
-  UndoOrderData(int c, int o, unsigned char v1, unsigned char v2):
-    chan(c),
-    ord(o),
-    oldVal(v1),
-    newVal(v2) {}
-
-  FURNACE_NET_STRUCT_SERIALIZABLE(chan, ord, oldVal, newVal);
-};
-
-/**
- * @brief Actual data to perform an undo/redo
- */
-struct [[deprecated]] UndoAction {
-  ActionType type;
-  int oldOrdersLen, newOrdersLen;
-  int oldPatLen, newPatLen;
-  std::vector<UndoOrderData> ord;
-  std::vector<UndoPatternData> pat;
-
-  FURNACE_NET_STRUCT_SERIALIZABLE(type, oldOrdersLen, newOrdersLen, oldPatLen, newPatLen, ord, pat);
-};
-
-/**
- * @brief Cursor and order positioning for an undo step
- */
-struct [[deprecated]] UndoPosition {
-  SelectionPoint cursor, selStart, selEnd;
-  int order;
-  bool nibble;
-};
-
-struct [[deprecated]] UndoStep {
-  UndoAction action;
-  UndoPosition position;
-};
-
 struct Particle {
   ImU32* colors;
   const char* type;
@@ -686,12 +614,6 @@ class FurnaceGUI {
   SelectionPoint sel1, sel2;
   int dummyRows, demandX;
 
-  [[deprecated]] int oldOrdersLen;
-  [[deprecated]] DivOrders oldOrders;
-  [[deprecated]] DivPattern* oldPat[128];
-  [[deprecated]] std::deque<UndoStep> undoHist;
-  [[deprecated]] std::deque<UndoStep> redoHist;
-
   EditAction::UndoStack undoStack;
 
   float keyHit[DIV_MAX_CHANS];
@@ -764,8 +686,6 @@ class FurnaceGUI {
   void moveCursorTop(bool select);
   void moveCursorBottom(bool select);
   void editAdvance();
-  [[deprecated]] void prepareUndo(ActionType action);
-  [[deprecated]] void makeUndo(ActionType action);
   void doSelectAll();
   void doDelete();
   void doPullDelete();

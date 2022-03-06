@@ -285,6 +285,11 @@ namespace EditAction {
        */
       [[nodiscard]]
       std::optional<UndoStep*> redoCommand();
+
+      /**
+       * @brief Clear the undo/redo history
+       */
+      void clear();
   };
 
   /**

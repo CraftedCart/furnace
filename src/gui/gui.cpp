@@ -2005,8 +2005,7 @@ void FurnaceGUI::drawNewSong() {
 
   if (accepted) {
     e->createNew(nextDesc);
-    undoHist.clear();
-    redoHist.clear();
+    undoStack.clear();
     curFileName="";
     modified=false;
     curNibble=false;
@@ -2607,83 +2606,6 @@ void FurnaceGUI::editAdvance() {
   selStart=cursor;
   selEnd=cursor;
   updateScroll(cursor.y);
-}
-
-void FurnaceGUI::prepareUndo(ActionType action) {
-  int order=e->getOrder();
-  switch (action) {
-    case GUI_UNDO_CHANGE_ORDER:
-      oldOrders=e->song.orders;
-      oldOrdersLen=e->song.ordersLen;
-      break;
-    case GUI_UNDO_PATTERN_EDIT:
-    case GUI_UNDO_PATTERN_DELETE:
-    case GUI_UNDO_PATTERN_PULL:
-    case GUI_UNDO_PATTERN_PUSH:
-    case GUI_UNDO_PATTERN_CUT:
-    case GUI_UNDO_PATTERN_PASTE:
-      for (int i=0; i<e->getTotalChannelCount(); i++) {
-        e->song.pat[i].getPattern(e->song.orders.ord[i][order],false)->copyOn(oldPat[i]);
-      }
-      break;
-  }
-}
-
-void FurnaceGUI::makeUndo(ActionType action) {
-  bool doPush=false;
-  UndoStep s;
-  s.action.type=action;
-  s.position.cursor=cursor;
-  s.position.selStart=selStart;
-  s.position.selEnd=selEnd;
-  int order=e->getOrder();
-  s.position.order=order;
-  s.position.nibble=curNibble;
-  switch (action) {
-    case GUI_UNDO_CHANGE_ORDER:
-      for (int i=0; i<DIV_MAX_CHANS; i++) {
-        for (int j=0; j<128; j++) {
-          if (oldOrders.ord[i][j]!=e->song.orders.ord[i][j]) {
-            s.action.ord.push_back(UndoOrderData(i,j,oldOrders.ord[i][j],e->song.orders.ord[i][j]));
-          }
-        }
-      }
-      s.action.oldOrdersLen=oldOrdersLen;
-      s.action.newOrdersLen=e->song.ordersLen;
-      if (oldOrdersLen!=e->song.ordersLen) {
-        doPush=true;
-      }
-      if (!s.action.ord.empty()) {
-        doPush=true;
-      }
-      break;
-    case GUI_UNDO_PATTERN_EDIT:
-    case GUI_UNDO_PATTERN_DELETE:
-    case GUI_UNDO_PATTERN_PULL:
-    case GUI_UNDO_PATTERN_PUSH:
-    case GUI_UNDO_PATTERN_CUT:
-    case GUI_UNDO_PATTERN_PASTE:
-      for (int i=0; i<e->getTotalChannelCount(); i++) {
-        DivPattern* p=e->song.pat[i].getPattern(e->song.orders.ord[i][order],false);
-        for (int j=0; j<e->song.patLen; j++) {
-          for (int k=0; k<32; k++) {
-            if (p->data[j][k]!=oldPat[i]->data[j][k]) {
-              s.action.pat.push_back(UndoPatternData(i,e->song.orders.ord[i][order],j,k,oldPat[i]->data[j][k],p->data[j][k]));
-            }
-          }
-        }
-      }
-      if (!s.action.pat.empty()) {
-        doPush=true;
-      }
-      break;
-  }
-  if (doPush) {
-    modified=true;
-    undoHist.push_back(s);
-    redoHist.clear();
-    if (undoHist.size()>settings.maxUndoSteps) undoHist.pop_front();
-  }
 }
 
 void FurnaceGUI::doSelectAll() {
@@ -4413,8 +4335,7 @@ int FurnaceGUI::load(String path) {
   selEnd=SelectionPoint();
   cursor=SelectionPoint();
   lastError="everything OK";
-  undoHist.clear();
-  redoHist.clear();
+  undoStack.clear();
   updateWindowTitle();
   if (!e->getWarnings().empty()) {
     showWarning(e->getWarnings(),GUI_WARN_GENERIC);
@@ -6112,10 +6033,6 @@ bool FurnaceGUI::init() {
 
   updateWindowTitle();
 
-  for (int i=0; i<DIV_MAX_CHANS; i++) {
-    oldPat[i]=new DivPattern;
-  }
-
 #ifdef __APPLE__
   SDL_RaiseWindow(sdlWin);
 #endif
@@ -6165,9 +6082,6 @@ bool FurnaceGUI::finish() {
   e->setConf("lastWindowWidth",scrW);
   e->setConf("lastWindowHeight",scrH);
 
-  for (int i=0; i<DIV_MAX_CHANS; i++) {
-    delete oldPat[i];
-  }
   return true;
 }
 
@@ -6283,7 +6197,6 @@ FurnaceGUI::FurnaceGUI():
   bindSetPending(false),
   nextScroll(-1.0f),
   nextAddScroll(0.0f),
-  oldOrdersLen(0),
   loopOrder(-1),
   loopRow(-1),
   loopEnd(-1) {
