@@ -50,6 +50,7 @@ class NetClient : public NetShared {
 
     void sendDownloadFile();
     void sendExecCommand(const EditAction::Command& cmd);
+    void sendRevertCommand(const EditAction::Command& cmd);
 
   private:
     void runThread(const String& address);

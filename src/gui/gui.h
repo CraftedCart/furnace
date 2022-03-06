@@ -757,6 +757,7 @@ class FurnaceGUI {
     FurnaceGUI();
 
     void doRemoteEditCommand(EditAction::Command& cmd);
+    void revertRemoteEditCommand(EditAction::Command& cmd);
 
     /**
      * @brief Run a task on the GUI thread and return a future for it

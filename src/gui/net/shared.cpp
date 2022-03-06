@@ -65,6 +65,7 @@ void wrapMethod(NetShared* server, const msgpack::object& argsObject, msgpack::s
 const std::unordered_map<String, NetShared::MethodFunc> NetShared::METHODS = {
   {NetCommon::Method::GET_FILE, &wrapMethod<&NetShared::recvGetFile>},
   {NetCommon::Method::EXEC_COMMAND, &wrapMethod<&NetShared::recvExecCommandWrapper>},
+  {NetCommon::Method::REVERT_COMMAND, &wrapMethod<&NetShared::recvRevertCommandWrapper>},
 };
 
 NetShared::RpcResponse::RpcResponse(std::optional<NetCommon::Response>&& message) :
@@ -187,5 +188,20 @@ msgpack::type::nil_t NetShared::recvExecCommandWrapper(const msgpack::object& ob
 void NetShared::recvExecCommand(EditAction::Command& cmd) {
   gui->runOnGuiThread<void>([&]() {
     gui->doRemoteEditCommand(cmd);
+  }).get();
+}
+
+msgpack::type::nil_t NetShared::recvRevertCommandWrapper(const msgpack::object& obj) {
+  std::optional<std::unique_ptr<EditAction::Command>> cmd = EditAction::deserializeCommand(obj);
+  if (cmd.has_value()) {
+    recvRevertCommand(**cmd);
+  }
+
+  return msgpack::type::nil_t();
+}
+
+void NetShared::recvRevertCommand(EditAction::Command& cmd) {
+  gui->runOnGuiThread<void>([&]() {
+    gui->revertRemoteEditCommand(cmd);
   }).get();
 }

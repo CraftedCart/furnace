@@ -27,12 +27,7 @@
 class FurnaceGUI;
 
 #ifdef HAVE_NETWORKING
-  #define FURNACE_COMMAND_SIMPLE_IMPL(T, commandKind, ...) \
-    public: \
-      struct Data { \
-        __VA_ARGS__ \
-      }; \
-      \
+  #define FURNACE_COMMAND_SIMPLE_IMPL(T, commandKind) \
     private: \
       struct PackedData { \
         Kind kind; \
@@ -74,15 +69,67 @@ class FurnaceGUI;
         PackedData packedData = { commandKind, data }; \
         packedData.msgpack_object(msgpack_o, msgpack_z); \
       }
-#else
-  #define FURNACE_COMMAND_SIMPLE_IMPL(kind, ...) \
-    public: \
-      struct Data { \
-        __VA_ARGS__ \
+
+  #define FURNACE_COMMAND_SIMPLE_IMPL_WITH_REVERT_DATA(T, commandKind) \
+    private: \
+      struct PackedData { \
+        Kind kind; \
+        Data data; \
+        RevertData revertData; \
+        \
+        FURNACE_NET_STRUCT_SERIALIZABLE(kind, data, revertData); \
       }; \
       \
     private: \
       Data data; \
+      RevertData revertData; \
+      \
+    public: \
+      T() = default; \
+      T(Data data) : data(data) {} \
+      virtual bool exec(FurnaceGUI* gui, Origin origin) override; \
+      virtual void revert(FurnaceGUI* gui, Origin origin) override; \
+      \
+      virtual msgpack::object serialize(msgpack::zone& z) const override { \
+        PackedData packedData = { commandKind, data, revertData }; \
+        return msgpack::object(packedData, z); \
+      } \
+      \
+      template<typename Packer> \
+      void msgpack_pack(Packer& msgpack_pk) const { \
+        PackedData packedData = { commandKind, data, revertData }; \
+        packedData.msgpack_pack(msgpack_pk); \
+      } \
+      \
+      void msgpack_unpack(msgpack::object const& msgpack_o) { \
+        PackedData packedData; \
+        packedData.msgpack_unpack(msgpack_o); \
+        \
+        assert(packedData.kind == commandKind); \
+        data = packedData.data; \
+        revertData = packedData.revertData; \
+      } \
+      \
+      template<typename MSGPACK_OBJECT> \
+      void msgpack_object(MSGPACK_OBJECT* msgpack_o, msgpack::zone& msgpack_z) const { \
+        PackedData packedData = { commandKind, data, revertData }; \
+        packedData.msgpack_object(msgpack_o, msgpack_z); \
+      }
+#else
+  #define FURNACE_COMMAND_SIMPLE_IMPL(kind) \
+    private: \
+      Data data; \
+      \
+    public: \
+      T() = default; \
+      T(Data data) : data(data) {} \
+      virtual bool exec(FurnaceGUI* gui, Origin origin) override; \
+      virtual void revert(FurnaceGUI* gui, Origin origin) override;
+
+  #define FURNACE_COMMAND_SIMPLE_IMPL_WITH_REVERT_DATA(T, commandKind) \
+    private: \
+      Data data; \
+      RevertData revertData; \
       \
     public: \
       T() = default; \
@@ -296,30 +343,40 @@ namespace EditAction {
    * @brief Add or duplicate an order
    */
   class CommandAddOrder : public Command {
-    FURNACE_COMMAND_SIMPLE_IMPL(CommandAddOrder, Kind::ORDER_ADD,
-      std::optional<int> duplicateFrom;
-      int where;
-      CloneDepth depth;
+    public:
+      struct Data {
+        std::optional<int> duplicateFrom;
+        int where;
+        CloneDepth depth;
 
-      FURNACE_NET_STRUCT_SERIALIZABLE(duplicateFrom, where, depth);
-    );
-    FURNACE_COMMAND_SIMPLE_CLONE(CommandAddOrder);
+        FURNACE_NET_STRUCT_SERIALIZABLE(duplicateFrom, where, depth);
+      };
+
+    private:
+      FURNACE_COMMAND_SIMPLE_IMPL(CommandAddOrder, Kind::ORDER_ADD);
+      FURNACE_COMMAND_SIMPLE_CLONE(CommandAddOrder);
   };
 
   /**
    * @brief Delete an order
    */
   class CommandDeleteOrder : public Command {
-    FURNACE_COMMAND_SIMPLE_IMPL(CommandDeleteOrder, Kind::ORDER_DELETE,
-      int which;
+    public:
+      struct Data {
+        int which;
 
-      FURNACE_NET_STRUCT_SERIALIZABLE(which);
-    );
-    FURNACE_COMMAND_SIMPLE_CLONE(CommandDeleteOrder);
+        FURNACE_NET_STRUCT_SERIALIZABLE(which);
+      };
 
-    struct {
-      unsigned char orderData[DIV_MAX_CHANS];
-    } revertData;
+      struct RevertData {
+        unsigned char orderData[DIV_MAX_CHANS];
+
+        FURNACE_NET_STRUCT_SERIALIZABLE(orderData);
+      };
+
+    private:
+      FURNACE_COMMAND_SIMPLE_IMPL_WITH_REVERT_DATA(CommandDeleteOrder, Kind::ORDER_DELETE);
+      FURNACE_COMMAND_SIMPLE_CLONE(CommandDeleteOrder);
   };
 
   /**
@@ -328,45 +385,61 @@ namespace EditAction {
    * Used for shifting orders up/down
    */
   class CommandSwapOrders : public Command {
-    FURNACE_COMMAND_SIMPLE_IMPL(CommandSwapOrders, Kind::ORDER_SWAP,
-      int a;
-      int b;
+    public:
+      struct Data {
+        int a;
+        int b;
 
-      FURNACE_NET_STRUCT_SERIALIZABLE(a, b);
-    );
-    FURNACE_COMMAND_SIMPLE_CLONE(CommandSwapOrders);
+        FURNACE_NET_STRUCT_SERIALIZABLE(a, b);
+      };
+
+    private:
+      FURNACE_COMMAND_SIMPLE_IMPL(CommandSwapOrders, Kind::ORDER_SWAP);
+      FURNACE_COMMAND_SIMPLE_CLONE(CommandSwapOrders);
   };
 
   /**
    * @brief Set order patterns
    */
   class CommandSetOrders : public Command {
-    FURNACE_COMMAND_SIMPLE_IMPL(CommandSetOrders, Kind::ORDER_SET,
-      std::vector<OrderPattern> newPatterns;
+    public:
+      struct Data {
+        std::vector<OrderPattern> newPatterns;
 
-      FURNACE_NET_STRUCT_SERIALIZABLE(newPatterns);
-    );
-    FURNACE_COMMAND_SIMPLE_CLONE(CommandSetOrders);
+        FURNACE_NET_STRUCT_SERIALIZABLE(newPatterns);
+      };
 
-    struct {
-      std::vector<OrderPattern> oldPatterns;
-    } revertData;
+      struct RevertData {
+        std::vector<OrderPattern> oldPatterns;
+
+        FURNACE_NET_STRUCT_SERIALIZABLE(oldPatterns);
+      };
+
+    private:
+      FURNACE_COMMAND_SIMPLE_IMPL_WITH_REVERT_DATA(CommandSetOrders, Kind::ORDER_SET);
+      FURNACE_COMMAND_SIMPLE_CLONE(CommandSetOrders);
   };
 
   /**
    * @brief Set some data in a pattern
    */
   class CommandSetPatternData : public Command {
-    FURNACE_COMMAND_SIMPLE_IMPL(CommandSetPatternData, Kind::PATTERN_SET_DATA,
-      std::vector<PatternDataEdit> newPatternData;
+    public:
+      struct Data {
+        std::vector<PatternDataEdit> newPatternData;
 
-      FURNACE_NET_STRUCT_SERIALIZABLE(newPatternData);
-    );
-    FURNACE_COMMAND_SIMPLE_CLONE(CommandSetPatternData);
+        FURNACE_NET_STRUCT_SERIALIZABLE(newPatternData);
+      };
 
-    struct {
-      std::vector<PatternDataEdit> oldPatternData;
-    } revertData;
+      struct RevertData {
+        std::vector<PatternDataEdit> oldPatternData;
+
+        FURNACE_NET_STRUCT_SERIALIZABLE(oldPatternData);
+      };
+
+    private:
+      FURNACE_COMMAND_SIMPLE_IMPL_WITH_REVERT_DATA(CommandSetPatternData, Kind::PATTERN_SET_DATA);
+      FURNACE_COMMAND_SIMPLE_CLONE(CommandSetPatternData);
   };
 
 #if HAVE_NETWORKING

@@ -3056,7 +3056,14 @@ void FurnaceGUI::doUndo() {
       e->setOrder((*step)->positionPre.order);
     }
 
-    // TODO: Broadcast undo over the network
+    // Broadcast the undo over the network
+#ifdef HAVE_NETWORKING
+    if (client.has_value()) {
+      client->sendRevertCommand(*(*step)->cmd);
+    } else if (server.has_value()) {
+      server->sendRevertCommand(*(*step)->cmd);
+    }
+#endif
   }
 }
 
@@ -3075,7 +3082,14 @@ void FurnaceGUI::doRedo() {
       e->setOrder((*step)->positionPost.order);
     }
 
-    // TODO: Broadcast redo over the network
+    // Broadcast the redo over the network
+#ifdef HAVE_NETWORKING
+    if (client.has_value()) {
+      client->sendExecCommand(*(*step)->cmd);
+    } else if (server.has_value()) {
+      server->sendExecCommand(*(*step)->cmd);
+    }
+#endif
   }
 }
 
@@ -6807,4 +6821,9 @@ void FurnaceGUI::doLocalEditCommand(std::unique_ptr<EditAction::Command>&& cmd) 
 void FurnaceGUI::doRemoteEditCommand(EditAction::Command& cmd) {
   bool didModify = cmd.exec(this, EditAction::Origin::REMOTE);
   if (didModify) modified = true;
+}
+
+void FurnaceGUI::revertRemoteEditCommand(EditAction::Command& cmd) {
+  cmd.revert(this, EditAction::Origin::REMOTE);
+  modified = true;
 }

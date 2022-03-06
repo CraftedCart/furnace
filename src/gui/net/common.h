@@ -97,6 +97,7 @@ namespace NetCommon {
   namespace Method {
     constexpr const char* GET_FILE = "getFile";
     constexpr const char* EXEC_COMMAND = "execCommand";
+    constexpr const char* REVERT_COMMAND = "revertCommand";
   }
 
   /**

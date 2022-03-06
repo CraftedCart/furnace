@@ -44,6 +44,17 @@ void NetServer::sendExecCommand(const EditAction::Command& cmd) {
   });
 }
 
+void NetServer::sendRevertCommand(const EditAction::Command& cmd) {
+  msgpack::zone zone;
+  msgpack::object cmdObject = cmd.serialize(zone);
+
+  taskQueue.enqueue<void>([this, zone = std::move(zone), cmdObject = std::move(cmdObject)]() {
+    for (const NetCommon::ClientId& client : connectedClients) {
+      rpcCall(client, NetCommon::Method::REVERT_COMMAND, cmdObject);
+    }
+  });
+}
+
 void NetServer::runThread(uint16_t port) {
   socket = zmq::socket_t{zmqContext, zmq::socket_type::router};
 
@@ -147,5 +158,19 @@ void NetServer::recvExecCommand(EditAction::Command& cmd) {
     if (client == currentClient) continue;
 
     rpcCall(client, NetCommon::Method::EXEC_COMMAND, cmdObject);
+  }
+}
+
+void NetServer::recvRevertCommand(EditAction::Command& cmd) {
+  NetShared::recvRevertCommand(cmd);
+
+  // Propagate message to other clients
+  msgpack::zone zone;
+  msgpack::object cmdObject = cmd.serialize(zone);
+
+  for (const NetCommon::ClientId& client : connectedClients) {
+    if (client == currentClient) continue;
+
+    rpcCall(client, NetCommon::Method::REVERT_COMMAND, cmdObject);
   }
 }

@@ -50,9 +50,11 @@ class NetServer : public NetShared {
     void start(uint16_t port);
 
     void sendExecCommand(const EditAction::Command& cmd);
+    void sendRevertCommand(const EditAction::Command& cmd);
 
   protected:
     virtual void recvExecCommand(EditAction::Command& cmd) override;
+    virtual void recvRevertCommand(EditAction::Command& cmd) override;
 
   private:
     void runThread(uint16_t port);

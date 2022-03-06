@@ -121,6 +121,9 @@ class NetShared {
 
     msgpack::type::nil_t recvExecCommandWrapper(const msgpack::object& obj);
     virtual void recvExecCommand(EditAction::Command& cmd);
+
+    msgpack::type::nil_t recvRevertCommandWrapper(const msgpack::object& obj);
+    virtual void recvRevertCommand(EditAction::Command& cmd);
 };
 
 #endif

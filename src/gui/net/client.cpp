@@ -72,6 +72,15 @@ void NetClient::sendExecCommand(const EditAction::Command& cmd) {
   });
 }
 
+void NetClient::sendRevertCommand(const EditAction::Command& cmd) {
+  msgpack::zone zone;
+  msgpack::object cmdObject = cmd.serialize(zone);
+
+  taskQueue.enqueue<void>([this, zone = std::move(zone), cmdObject = std::move(cmdObject)]() {
+    rpcCall(NetCommon::Method::REVERT_COMMAND, cmdObject);
+  });
+}
+
 void NetClient::runThread(const String& address) {
   socket = zmq::socket_t{zmqContext, zmq::socket_type::dealer};
 
