@@ -2731,34 +2731,42 @@ void FurnaceGUI::doSelectAll() {
 
 void FurnaceGUI::doDelete() {
   finishSelection();
-  prepareUndo(GUI_UNDO_PATTERN_DELETE);
   curNibble=false;
+
+  std::vector<EditAction::PatternDataEdit> editsToMake;
 
   int iCoarse=selStart.xCoarse;
   int iFine=selStart.xFine;
   int ord=e->getOrder();
   for (; iCoarse<=selEnd.xCoarse; iCoarse++) {
     if (!e->song.chanShow[iCoarse]) continue;
-    DivPattern* pat=e->song.pat[iCoarse].getPattern(e->song.orders.ord[iCoarse][ord],true);
+
+    unsigned char patternIndex = e->song.orders.ord[iCoarse][ord];
+
     for (; iFine<3+e->song.pat[iCoarse].effectRows*2 && (iCoarse<selEnd.xCoarse || iFine<=selEnd.xFine); iFine++) {
       for (int j=selStart.y; j<=selEnd.y; j++) {
         if (iFine==0) {
-          pat->data[j][iFine]=0;
-          if (selStart.y==selEnd.y) pat->data[j][2]=-1;
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine, 0 });
+          if (selStart.y==selEnd.y) {
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, 2, -1 });
+          }
         }
-        pat->data[j][iFine+1]=(iFine<1)?0:-1;
+        editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, (iFine<1) ? short(0) : short(-1) });
       }
     }
     iFine=0;
   }
 
-  makeUndo(GUI_UNDO_PATTERN_DELETE);
+  doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+    EditAction::CommandSetPatternData::Data { std::move(editsToMake) }
+  ));
 }
 
 void FurnaceGUI::doPullDelete() {
   finishSelection();
-  prepareUndo(GUI_UNDO_PATTERN_PULL);
   curNibble=false;
+
+  std::vector<EditAction::PatternDataEdit> editsToMake;
 
   if (settings.pullDeleteBehavior) {
     if (--selStart.y<0) selStart.y=0;
@@ -2772,71 +2780,86 @@ void FurnaceGUI::doPullDelete() {
   int ord=e->getOrder();
   for (; iCoarse<=selEnd.xCoarse; iCoarse++) {
     if (!e->song.chanShow[iCoarse]) continue;
-    DivPattern* pat=e->song.pat[iCoarse].getPattern(e->song.orders.ord[iCoarse][ord],true);
+
+    unsigned char patternIndex = e->song.orders.ord[iCoarse][ord];
+    DivPattern* pat=e->song.pat[iCoarse].getPattern(patternIndex,true);
+
     for (; iFine<3+e->song.pat[iCoarse].effectRows*2 && (iCoarse<selEnd.xCoarse || iFine<=selEnd.xFine); iFine++) {
       for (int j=selStart.y; j<e->song.patLen; j++) {
         if (j<e->song.patLen-1) {
           if (iFine==0) {
-            pat->data[j][iFine]=pat->data[j+1][iFine];
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine, pat->data[j+1][iFine] });
           }
-          pat->data[j][iFine+1]=pat->data[j+1][iFine+1];
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, pat->data[j+1][iFine+1] });
         } else {
           if (iFine==0) {
-            pat->data[j][iFine]=0;
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine, 0 });
           }
-          pat->data[j][iFine+1]=(iFine<1)?0:-1;
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, (iFine<1) ? short(0) : short(-1) });
         }
       }
     }
     iFine=0;
   }
 
-  makeUndo(GUI_UNDO_PATTERN_PULL);
+  doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+    EditAction::CommandSetPatternData::Data { std::move(editsToMake) }
+  ));
 }
 
 void FurnaceGUI::doInsert() {
   finishSelection();
-  prepareUndo(GUI_UNDO_PATTERN_PUSH);
   curNibble=false;
+
+  std::vector<EditAction::PatternDataEdit> editsToMake;
 
   int iCoarse=selStart.xCoarse;
   int iFine=selStart.xFine;
   int ord=e->getOrder();
   for (; iCoarse<=selEnd.xCoarse; iCoarse++) {
     if (!e->song.chanShow[iCoarse]) continue;
-    DivPattern* pat=e->song.pat[iCoarse].getPattern(e->song.orders.ord[iCoarse][ord],true);
+
+    unsigned char patternIndex = e->song.orders.ord[iCoarse][ord];
+    DivPattern* pat=e->song.pat[iCoarse].getPattern(patternIndex,true);
+
     for (; iFine<3+e->song.pat[iCoarse].effectRows*2 && (iCoarse<selEnd.xCoarse || iFine<=selEnd.xFine); iFine++) {
       for (int j=e->song.patLen-1; j>=selStart.y; j--) {
         if (j==selStart.y) {
           if (iFine==0) {
-            pat->data[j][iFine]=0;
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine, 0 });
           }
-          pat->data[j][iFine+1]=(iFine<1)?0:-1;
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, (iFine<1) ? short(0) : short(-1) });
         } else {
           if (iFine==0) {
-            pat->data[j][iFine]=pat->data[j-1][iFine];
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine, pat->data[j-1][iFine] });
           }
-          pat->data[j][iFine+1]=pat->data[j-1][iFine+1];
+          editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, pat->data[j-1][iFine+1] });
         }
       }
     }
     iFine=0;
   }
 
-  makeUndo(GUI_UNDO_PATTERN_PUSH);
+  doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+    EditAction::CommandSetPatternData::Data { std::move(editsToMake) }
+  ));
 }
 
 void FurnaceGUI::doTranspose(int amount) {
   finishSelection();
-  prepareUndo(GUI_UNDO_PATTERN_DELETE);
   curNibble=false;
+
+  std::vector<EditAction::PatternDataEdit> editsToMake;
 
   int iCoarse=selStart.xCoarse;
   int iFine=selStart.xFine;
   int ord=e->getOrder();
   for (; iCoarse<=selEnd.xCoarse; iCoarse++) {
     if (!e->song.chanShow[iCoarse]) continue;
-    DivPattern* pat=e->song.pat[iCoarse].getPattern(e->song.orders.ord[iCoarse][ord],true);
+
+    unsigned char patternIndex = e->song.orders.ord[iCoarse][ord];
+    DivPattern* pat=e->song.pat[iCoarse].getPattern(patternIndex,true);
+
     for (; iFine<3+e->song.pat[iCoarse].effectRows*2 && (iCoarse<selEnd.xCoarse || iFine<=selEnd.xFine); iFine++) {
       for (int j=selStart.y; j<=selEnd.y; j++) {
         if (iFine==0) {
@@ -2860,8 +2883,9 @@ void FurnaceGUI::doTranspose(int amount) {
               origNote=1;
               origOctave=-5;
             }
-            pat->data[j][0]=origNote;
-            pat->data[j][1]=(unsigned char)origOctave;
+
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, 0, (short) origNote });
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, 1, (unsigned char) origOctave });
           }
         }
       }
@@ -2869,7 +2893,9 @@ void FurnaceGUI::doTranspose(int amount) {
     iFine=0;
   }
 
-  makeUndo(GUI_UNDO_PATTERN_DELETE);
+  doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+    EditAction::CommandSetPatternData::Data { std::move(editsToMake) }
+  ));
 }
 
 void FurnaceGUI::doCopy(bool cut) {
@@ -3894,31 +3920,38 @@ void FurnaceGUI::keyDown(SDL_Event& ev) {
             int num=12*curOctave+key;
 
             if (edit) {
-              DivPattern* pat=e->song.pat[cursor.xCoarse].getPattern(e->song.orders.ord[cursor.xCoarse][e->getOrder()],true);
-              
-              prepareUndo(GUI_UNDO_PATTERN_EDIT);
+              unsigned char patternIndex = e->song.orders.ord[cursor.xCoarse][e->getOrder()];
+
+              std::vector<EditAction::PatternDataEdit> editsToMake;
 
               if (key==100) { // note off
-                pat->data[cursor.y][0]=100;
-                pat->data[cursor.y][1]=0;
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 0, 100 });
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 1, 0 });
               } else if (key==101) { // note off + env release
-                pat->data[cursor.y][0]=101;
-                pat->data[cursor.y][1]=0;
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 0, 101 });
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 1, 0 });
               } else if (key==102) { // env release only
-                pat->data[cursor.y][0]=102;
-                pat->data[cursor.y][1]=0;
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 0, 102 });
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 1, 0 });
               } else {
-                pat->data[cursor.y][0]=num%12;
-                pat->data[cursor.y][1]=num/12;
-                if (pat->data[cursor.y][0]==0) {
-                  pat->data[cursor.y][0]=12;
-                  pat->data[cursor.y][1]--;
+                short note = num%12;
+                unsigned char octave = num/12;
+                short instrument = curIns;
+                if (note == 0) {
+                  note = 12;
+                  octave--;
                 }
-                pat->data[cursor.y][1]=(unsigned char)pat->data[cursor.y][1];
-                pat->data[cursor.y][2]=curIns;
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 0, note });
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 1, octave });
+                editsToMake.push_back(EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, 2, instrument });
+
                 previewNote(cursor.xCoarse,num);
               }
-              makeUndo(GUI_UNDO_PATTERN_EDIT);
+
+              doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+                EditAction::CommandSetPatternData::Data { std::move(editsToMake) }
+              ));
+
               editAdvance();
               curNibble=false;
             } else {
@@ -3931,44 +3964,57 @@ void FurnaceGUI::keyDown(SDL_Event& ev) {
         } else if (edit) { // value
           try {
             int num=valueKeys.at(ev.key.keysym.sym);
-            DivPattern* pat=e->song.pat[cursor.xCoarse].getPattern(e->song.orders.ord[cursor.xCoarse][e->getOrder()],true);
-            prepareUndo(GUI_UNDO_PATTERN_EDIT);
-            if (pat->data[cursor.y][cursor.xFine+1]==-1) pat->data[cursor.y][cursor.xFine+1]=0;
-            pat->data[cursor.y][cursor.xFine+1]=((pat->data[cursor.y][cursor.xFine+1]<<4)|num)&0xff;
+
+            unsigned char patternIndex = e->song.orders.ord[cursor.xCoarse][e->getOrder()];
+            DivPattern* pat=e->song.pat[cursor.xCoarse].getPattern(patternIndex,true);
+
+            short newVal = pat->data[cursor.y][cursor.xFine+1];
+            bool wantAdvance = false;
+
+            if (newVal==-1) newVal=0;
+            newVal=((newVal<<4)|num)&0xff;
             if (cursor.xFine==1) { // instrument
-              if (pat->data[cursor.y][cursor.xFine+1]>=(int)e->song.ins.size()) {
-                pat->data[cursor.y][cursor.xFine+1]&=0x0f;
-                if (pat->data[cursor.y][cursor.xFine+1]>=(int)e->song.ins.size()) {
-                  pat->data[cursor.y][cursor.xFine+1]=(int)e->song.ins.size()-1;
+              if (newVal>=(int)e->song.ins.size()) {
+                newVal&=0x0f;
+                if (newVal>=(int)e->song.ins.size()) {
+                  newVal=(int)e->song.ins.size()-1;
                 }
               }
-              makeUndo(GUI_UNDO_PATTERN_EDIT);
+
               if (e->song.ins.size()<16) {
                 curNibble=false;
-                editAdvance();
+                wantAdvance = true;
               } else {
                 curNibble=!curNibble;
-                if (!curNibble) editAdvance();
+                if (!curNibble) wantAdvance = true;
               }
             } else if (cursor.xFine==2) {
               if (curNibble) {
-                if (pat->data[cursor.y][cursor.xFine+1]>e->getMaxVolumeChan(cursor.xCoarse)) pat->data[cursor.y][cursor.xFine+1]=e->getMaxVolumeChan(cursor.xCoarse);
+                if (newVal>e->getMaxVolumeChan(cursor.xCoarse)) newVal=e->getMaxVolumeChan(cursor.xCoarse);
               } else {
-                pat->data[cursor.y][cursor.xFine+1]&=15;
+                newVal&=15;
               }
-              makeUndo(GUI_UNDO_PATTERN_EDIT);
+
               if (e->getMaxVolumeChan(cursor.xCoarse)<16) {
                 curNibble=false;
-                editAdvance();
+                wantAdvance = true;
               } else {
                 curNibble=!curNibble;
-                if (!curNibble) editAdvance();
+                if (!curNibble) wantAdvance = true;
               }
             } else {
-              makeUndo(GUI_UNDO_PATTERN_EDIT);
+
               curNibble=!curNibble;
-              if (!curNibble) editAdvance();
+              if (!curNibble) wantAdvance = true;
             }
+
+            doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+              EditAction::CommandSetPatternData::Data { std::vector<EditAction::PatternDataEdit>{
+                EditAction::PatternDataEdit { cursor.xCoarse, patternIndex, cursor.y, cursor.xFine + 1, newVal },
+              }}
+            ));
+
+            if (wantAdvance) editAdvance();
           } catch (std::out_of_range& e) {
           }
         }
