@@ -2876,8 +2876,11 @@ void FurnaceGUI::doCopy(bool cut) {
   finishSelection();
   if (cut) {
     curNibble=false;
-    prepareUndo(GUI_UNDO_PATTERN_CUT);
   }
+
+  // If we're cutting, make a list of things we need to clear out
+  std::vector<EditAction::PatternDataEdit> editsToMake;
+
   clipboard=fmt::sprintf("org.tildearrow.furnace - Pattern Data (%d)\n%d",DIV_ENGINE_VERSION,selStart.xFine);
 
   for (int j=selStart.y; j<=selEnd.y; j++) {
@@ -2890,13 +2893,16 @@ void FurnaceGUI::doCopy(bool cut) {
     clipboard+='\n';
     for (; iCoarse<=selEnd.xCoarse; iCoarse++) {
       if (!e->song.chanShow[iCoarse]) continue;
-      DivPattern* pat=e->song.pat[iCoarse].getPattern(e->song.orders.ord[iCoarse][ord],true);
+
+      unsigned char patternIndex = e->song.orders.ord[iCoarse][ord];
+      DivPattern* pat=e->song.pat[iCoarse].getPattern(patternIndex,true);
+
       for (; iFine<3+e->song.pat[iCoarse].effectRows*2 && (iCoarse<selEnd.xCoarse || iFine<=selEnd.xFine); iFine++) {
         if (iFine==0) {
           clipboard+=noteNameNormal(pat->data[j][0],pat->data[j][1]);
           if (cut) {
-            pat->data[j][0]=0;
-            pat->data[j][1]=0;
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, 0, 0 });
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, 1, 0 });
           }
         } else {
           if (pat->data[j][iFine+1]==-1) {
@@ -2905,7 +2911,7 @@ void FurnaceGUI::doCopy(bool cut) {
             clipboard+=fmt::sprintf("%.2X",pat->data[j][iFine+1]);
           }
           if (cut) {
-            pat->data[j][iFine+1]=-1;
+            editsToMake.push_back(EditAction::PatternDataEdit { iCoarse, patternIndex, j, iFine + 1, -1 });
           }
         }
       }
@@ -2915,8 +2921,13 @@ void FurnaceGUI::doCopy(bool cut) {
   }
   SDL_SetClipboardText(clipboard.c_str());
 
+  // Assert that if we're not cutting, `editsToMake` should have no data in it
+  assert((!cut && editsToMake.size() == 0) || cut);
+
   if (cut) {
-    makeUndo(GUI_UNDO_PATTERN_CUT);
+    doLocalEditCommand(std::make_unique<EditAction::CommandSetPatternData>(
+      EditAction::CommandSetPatternData::Data { std::move(editsToMake) }
+    ));
   }
 }
 
