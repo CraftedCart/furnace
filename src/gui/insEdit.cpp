@@ -23,6 +23,7 @@
 #include "misc/cpp/imgui_stdlib.h"
 #include "guiConst.h"
 #include "intConst.h"
+#include "../struct_update.h"
 #include <fmt/printf.h>
 #include <imgui.h>
 #include "plot_nolerp.h"
@@ -777,6 +778,103 @@ if (ImGui::BeginTable("MacroSpace",2)) { \
   ImGui::EndTable(); \
 }
 
+template<typename T> static constexpr ImGuiDataType imguiDataTypeFor();
+// template<> constexpr ImGuiDataType imguiDataTypeFor<int8_t>() { return ImGuiDataType_S8; }
+template<> constexpr ImGuiDataType imguiDataTypeFor<uint8_t>() { return ImGuiDataType_U8; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<int16_t>() { return ImGuiDataType_S16; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<uint16_t>() { return ImGuiDataType_U16; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<int32_t>() { return ImGuiDataType_S32; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<uint32_t>() { return ImGuiDataType_U32; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<int64_t>() { return ImGuiDataType_S64; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<uint64_t>() { return ImGuiDataType_U64; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<float>() { return ImGuiDataType_Float; }
+// template<> constexpr ImGuiDataType imguiDataTypeFor<double>() { return ImGuiDataType_Double; }
+
+/**
+ * @param label Slider label
+ * @param currentValue The current value the slider should display
+ * @param updateStruct If the slider is modified, this struct will be modified using the next parameter
+ * @param updateStructValue If the slider is modified, this member function will be called with the modified value
+ * @param min Minimum slider value
+ * @param max Maximum slider value
+ * @param modified If the slider is modified, this will be set to true
+ */
+template<typename UpdateStructT, typename T>
+static void sliderScalarWrapper(
+  const char* label,
+  T currentValue,
+  StructUpdate::Partial<UpdateStructT>& updateStruct,
+  void (StructUpdate::Partial<UpdateStructT>::*updateStructValue)(const T&),
+  T min,
+  T max,
+  bool& modified,
+  const char* format = nullptr
+) {
+  T sliderVal = currentValue;
+  bool sliderModified = ImGui::SliderScalar(
+    label,
+    imguiDataTypeFor<T>(),
+    &sliderVal,
+    &min,
+    &max,
+    format,
+    ImGuiSliderFlags_AlwaysClamp
+  ); rightClickable;
+
+  if (sliderModified) {
+    (updateStruct.*updateStructValue)(sliderVal);
+    modified = true;
+  }
+}
+
+/**
+ * @param label Text input label
+ * @param currentValue The current value the text input should display
+ * @param updateStruct If the text is modified, this struct will be modified using the next parameter
+ * @param updateStructValue If the text is modified, this member function will be called with the modified value
+ * @param modified If the text is modified, this will be set to true
+ */
+template<typename UpdateStructT>
+static void inputTextWrapper(
+  const char* label,
+  const String& currentValue,
+  StructUpdate::Partial<UpdateStructT>& updateStruct,
+  void (StructUpdate::Partial<UpdateStructT>::*updateStructValue)(const String&),
+  bool& modified
+) {
+  String textVal = currentValue;
+  bool textModified = ImGui::InputText(label, &textVal);
+
+  if (textModified) {
+    (updateStruct.*updateStructValue)(textVal);
+    modified = true;
+  }
+}
+
+/**
+ * @param label Checkbox label
+ * @param currentValue Whether the checkbox is currently checked
+ * @param updateStruct If the checkbox is modified, this struct will be modified using the next parameter
+ * @param updateStructValue If the checkbox is modified, this member function will be called with the modified value
+ * @param modified If the checkbox is modified, this will be set to true
+ */
+template<typename UpdateStructT>
+static void checkboxWrapper(
+  const char* label,
+  bool currentValue,
+  StructUpdate::Partial<UpdateStructT>& updateStruct,
+  void (StructUpdate::Partial<UpdateStructT>::*updateStructValue)(const bool&),
+  bool& modified
+) {
+  bool checkVal = currentValue;
+  bool checkModified = ImGui::Checkbox(label, &checkVal);
+
+  if (checkModified) {
+    (updateStruct.*updateStructValue)(checkVal);
+    modified = true;
+  }
+}
+
 void FurnaceGUI::drawInsEdit() {
   if (nextWindow==GUI_WINDOW_INS_EDIT) {
     insEditOpen=true;
@@ -790,14 +888,24 @@ void FurnaceGUI::drawInsEdit() {
       ImGui::Text("no instrument selected");
     } else {
       DivInstrument* ins=e->song.ins[curIns];
-      ImGui::InputText("Name",&ins->name);
+
+      StructUpdate::Partial<DivInstrument> instrumentUpdate;
+      bool instrumentModified = false;
+
+      inputTextWrapper("Name", ins->name, instrumentUpdate, &StructUpdate::Partial<DivInstrument>::name, instrumentModified);
+
+      // TODO: Make type write to the update struct
       if (ins->type<0 || ins->type>23) ins->type=DIV_INS_FM;
       int insType=ins->type;
       if (ImGui::Combo("Type",&insType,insTypes,24,24)) {
-        ins->type=(DivInstrumentType)insType;
+        instrumentUpdate.type((DivInstrumentType) insType);
+        instrumentModified = true;
       }
 
       if (ImGui::BeginTabBar("insEditTab")) {
+        StructUpdate::Partial<DivInstrumentFM> fmUpdate;
+        bool fmModified = false;
+
         if (ins->type==DIV_INS_FM || ins->type==DIV_INS_OPL || ins->type==DIV_INS_OPLL || ins->type==DIV_INS_OPZ) {
           char label[32];
           float asFloat[256];
@@ -808,6 +916,7 @@ void FurnaceGUI::drawInsEdit() {
           if (ins->type==DIV_INS_OPL) opCount=(ins->fm.ops==4)?4:2;
 
           if (ImGui::BeginTabItem("FM")) {
+
             if (ImGui::BeginTable("fmDetails",3,ImGuiTableFlags_SizingStretchSame)) {
               ImGui::TableSetupColumn("c0",ImGuiTableColumnFlags_WidthStretch,0.0);
               ImGui::TableSetupColumn("c1",ImGuiTableColumnFlags_WidthStretch,0.0);
@@ -817,11 +926,11 @@ void FurnaceGUI::drawInsEdit() {
                 case DIV_INS_FM:
                 case DIV_INS_OPZ:
                   ImGui::TableNextColumn();
-                  P(ImGui::SliderScalar(FM_NAME(FM_FB),ImGuiDataType_U8,&ins->fm.fb,&_ZERO,&_SEVEN)); rightClickable
-                  P(ImGui::SliderScalar(FM_NAME(FM_FMS),ImGuiDataType_U8,&ins->fm.fms,&_ZERO,&_SEVEN)); rightClickable
+                  sliderScalarWrapper(FM_NAME(FM_FB), ins->fm.fb, fmUpdate, &StructUpdate::Partial<DivInstrumentFM>::fb, uint8_t(0), uint8_t(7), fmModified);
+                  sliderScalarWrapper(FM_NAME(FM_FMS), ins->fm.fms, fmUpdate, &StructUpdate::Partial<DivInstrumentFM>::fms, uint8_t(0), uint8_t(7), fmModified);
                   ImGui::TableNextColumn();
-                  P(ImGui::SliderScalar(FM_NAME(FM_ALG),ImGuiDataType_U8,&ins->fm.alg,&_ZERO,&_SEVEN)); rightClickable
-                  P(ImGui::SliderScalar(FM_NAME(FM_AMS),ImGuiDataType_U8,&ins->fm.ams,&_ZERO,&_THREE)); rightClickable
+                  sliderScalarWrapper(FM_NAME(FM_ALG), ins->fm.alg, fmUpdate, &StructUpdate::Partial<DivInstrumentFM>::alg, uint8_t(0), uint8_t(7), fmModified);
+                  sliderScalarWrapper(FM_NAME(FM_AMS), ins->fm.ams, fmUpdate, &StructUpdate::Partial<DivInstrumentFM>::ams, uint8_t(0), uint8_t(3), fmModified);
                   ImGui::TableNextColumn();
                   drawAlgorithm(ins->fm.alg,FM_ALGS_4OP,ImVec2(ImGui::GetContentRegionAvail().x,48.0*dpiScale));
                   break;
@@ -966,7 +1075,12 @@ void FurnaceGUI::drawInsEdit() {
             }
             if (willDisplayOps) if (ImGui::BeginTable("FMOperators",2,ImGuiTableFlags_SizingStretchSame)) {
               for (int i=0; i<opCount; i++) {
-                DivInstrumentFM::Operator& op=ins->fm.op[(opCount==4)?opOrder[i]:i];
+                size_t operatorIndex = (opCount==4)?opOrder[i]:i;
+                DivInstrumentFM::Operator& op=ins->fm.op[operatorIndex];
+
+                StructUpdate::Partial<DivInstrumentFM::Operator> operatorUpdate;
+                bool operatorModified = false;
+
                 if ((i+1)&1) ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 ImGui::Separator();
@@ -976,14 +1090,11 @@ void FurnaceGUI::drawInsEdit() {
 
                 ImGui::SameLine();
 
-                bool amOn=op.am;
-                if (ImGui::Checkbox(FM_NAME(FM_AM),&amOn)) { PARAMETER
-                  op.am=amOn;
-                }
+                checkboxWrapper(FM_NAME(FM_AM), op.am, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::am, operatorModified);
 
                 ImGui::SameLine();
 
-                int maxTl=127;
+                uint8_t maxTl=127;
                 if (ins->type==DIV_INS_OPLL) {
                   if (i==1) {
                     maxTl=15;
@@ -994,7 +1105,7 @@ void FurnaceGUI::drawInsEdit() {
                 if (ins->type==DIV_INS_OPL) {
                   maxTl=63;
                 }
-                int maxArDr=(ins->type==DIV_INS_FM || ins->type==DIV_INS_OPZ)?31:15;
+                uint8_t maxArDr=(ins->type==DIV_INS_FM || ins->type==DIV_INS_OPZ)?31:15;
 
                 bool ssgOn=op.ssgEnv&8;
                 bool ksrOn=op.ksr;
@@ -1002,8 +1113,9 @@ void FurnaceGUI::drawInsEdit() {
                 bool susOn=op.sus; // don't you make fun of this one
                 unsigned char ssgEnv=op.ssgEnv&7;
                 if (ins->type!=DIV_INS_OPL && ins->type!=DIV_INS_OPZ) {
-                  if (ImGui::Checkbox((ins->type==DIV_INS_OPLL)?FM_NAME(FM_EGS):"SSG On",&ssgOn)) { PARAMETER
-                    op.ssgEnv=(op.ssgEnv&7)|(ssgOn<<3);
+                  if (ImGui::Checkbox((ins->type==DIV_INS_OPLL)?FM_NAME(FM_EGS):"SSG On",&ssgOn)) {
+                    operatorUpdate.ssgEnv((op.ssgEnv&7)|(ssgOn<<3));
+                    operatorModified = true;
                   }
                   if (ins->type==DIV_INS_FM) {
                     if (ImGui::IsItemHovered()) {
@@ -1013,8 +1125,9 @@ void FurnaceGUI::drawInsEdit() {
                 }
 
                 if (ins->type==DIV_INS_OPL) {
-                  if (ImGui::Checkbox(FM_NAME(FM_SUS),&susOn)) { PARAMETER
-                    op.sus=susOn;
+                  if (ImGui::Checkbox(FM_NAME(FM_SUS),&susOn)) {
+                    operatorUpdate.sus(susOn);
+                    operatorModified = true;
                   }
                 }
 
@@ -1028,23 +1141,29 @@ void FurnaceGUI::drawInsEdit() {
                   ImGui::TableNextRow();
                   ImGui::TableNextColumn();
                   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                  op.ar&=maxArDr;
-                  P(ImGui::SliderScalar("##AR",ImGuiDataType_U8,&op.ar,&maxArDr,&_ZERO)); rightClickable
+                  if ((op.ar & maxArDr) != op.ar) {
+                    operatorUpdate.ar(op.ar & maxArDr);
+                    operatorModified = true;
+                  }
+                  sliderScalarWrapper("##AR", op.ar, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::ar, maxArDr, uint8_t(0), operatorModified);
                   ImGui::TableNextColumn();
                   ImGui::Text("%s",FM_NAME(FM_AR));
 
                   ImGui::TableNextRow();
                   ImGui::TableNextColumn();
                   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                  op.dr&=maxArDr;
-                  P(ImGui::SliderScalar("##DR",ImGuiDataType_U8,&op.dr,&maxArDr,&_ZERO)); rightClickable
+                  if ((op.ar & maxArDr) != op.ar) {
+                    operatorUpdate.ar(op.ar & maxArDr);
+                    operatorModified = true;
+                  }
+                  sliderScalarWrapper("##DR", op.dr, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::dr, maxArDr, uint8_t(0), operatorModified);
                   ImGui::TableNextColumn();
                   ImGui::Text("%s",FM_NAME(FM_DR));
 
                   ImGui::TableNextRow();
                   ImGui::TableNextColumn();
                   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                  P(ImGui::SliderScalar("##SL",ImGuiDataType_U8,&op.sl,&_FIFTEEN,&_ZERO)); rightClickable
+                  sliderScalarWrapper("##SL", op.sl, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::sl, uint8_t(15), uint8_t(0), operatorModified);
                   ImGui::TableNextColumn();
                   ImGui::Text("%s",FM_NAME(FM_SL));
 
@@ -1052,7 +1171,7 @@ void FurnaceGUI::drawInsEdit() {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    P(ImGui::SliderScalar("##D2R",ImGuiDataType_U8,&op.d2r,&_THIRTY_ONE,&_ZERO)); rightClickable
+                    sliderScalarWrapper("##D2R", op.d2r, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::d2r, uint8_t(31), uint8_t(0), operatorModified);
                     ImGui::TableNextColumn();
                     ImGui::Text("%s",FM_NAME(FM_D2R));
                   }
@@ -1060,15 +1179,18 @@ void FurnaceGUI::drawInsEdit() {
                   ImGui::TableNextRow();
                   ImGui::TableNextColumn();
                   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                  P(ImGui::SliderScalar("##RR",ImGuiDataType_U8,&op.rr,&_FIFTEEN,&_ZERO)); rightClickable
+                  sliderScalarWrapper("##RR", op.rr, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::rr, uint8_t(15), uint8_t(0), operatorModified);
                   ImGui::TableNextColumn();
                   ImGui::Text("%s",FM_NAME(FM_RR));
 
                   ImGui::TableNextRow();
                   ImGui::TableNextColumn();
                   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                  op.tl&=maxTl;
-                  P(ImGui::SliderScalar("##TL",ImGuiDataType_U8,&op.tl,&maxTl,&_ZERO)); rightClickable
+                  sliderScalarWrapper("##TL", op.tl, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::tl, maxTl, uint8_t(0), operatorModified);
+                  if ((op.tl & maxTl) != op.tl) {
+                    operatorUpdate.tl(op.tl & maxTl);
+                    operatorModified = true;
+                  }
                   ImGui::TableNextColumn();
                   ImGui::Text("%s",FM_NAME(FM_TL));
 
@@ -1082,11 +1204,11 @@ void FurnaceGUI::drawInsEdit() {
                   ImGui::TableNextColumn();
                   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                   if (ins->type==DIV_INS_FM || ins->type==DIV_INS_OPZ) {
-                    P(ImGui::SliderScalar("##RS",ImGuiDataType_U8,&op.rs,&_ZERO,&_THREE)); rightClickable
+                    sliderScalarWrapper("##RS", op.rs, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::rs, uint8_t(0), uint8_t(3), operatorModified);
                     ImGui::TableNextColumn();
                     ImGui::Text("%s",FM_NAME(FM_RS));
                   } else {
-                    P(ImGui::SliderScalar("##KSL",ImGuiDataType_U8,&op.ksl,&_ZERO,&_THREE)); rightClickable
+                    sliderScalarWrapper("##KSL", op.ksl, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::ksl, uint8_t(0), uint8_t(3), operatorModified);
                     ImGui::TableNextColumn();
                     ImGui::Text("%s",FM_NAME(FM_KSL));
                   }
@@ -1094,7 +1216,7 @@ void FurnaceGUI::drawInsEdit() {
                   ImGui::TableNextRow();
                   ImGui::TableNextColumn();
                   ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                  P(ImGui::SliderScalar(FM_NAME(FM_MULT),ImGuiDataType_U8,&op.mult,&_ZERO,&_FIFTEEN)); rightClickable
+                  sliderScalarWrapper(FM_NAME(FM_MULT), op.mult, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::mult, uint8_t(0), uint8_t(15), operatorModified);
                   ImGui::TableNextColumn();
                   ImGui::Text("%s",FM_NAME(FM_MULT));
                   
@@ -1103,8 +1225,9 @@ void FurnaceGUI::drawInsEdit() {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    if (ImGui::SliderInt("##DT",&detune,-3,4)) { PARAMETER
-                      op.dt=detune+3;
+                    if (ImGui::SliderInt("##DT",&detune,-3,4)) {
+                      operatorUpdate.dt(detune + 3);
+                      operatorModified = true;
                     } rightClickable
                     ImGui::TableNextColumn();
                     ImGui::Text("%s",FM_NAME(FM_DT));
@@ -1112,7 +1235,8 @@ void FurnaceGUI::drawInsEdit() {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    P(ImGui::SliderScalar("##DT2",ImGuiDataType_U8,&op.dt2,&_ZERO,&_THREE)); rightClickable
+
+                    sliderScalarWrapper("##DT2", op.dt2, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::dt2, uint8_t(0), uint8_t(3), operatorModified);
                     if (ImGui::IsItemHovered()) {
                       ImGui::SetTooltip("Only for Arcade system");
                     }
@@ -1122,8 +1246,9 @@ void FurnaceGUI::drawInsEdit() {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    if (ImGui::SliderScalar("##SSG",ImGuiDataType_U8,&ssgEnv,&_ZERO,&_SEVEN,ssgEnvTypes[ssgEnv])) { PARAMETER
-                      op.ssgEnv=(op.ssgEnv&8)|(ssgEnv&7);
+                    if (ImGui::SliderScalar("##SSG",ImGuiDataType_U8,&ssgEnv,&_ZERO,&_SEVEN,ssgEnvTypes[ssgEnv])) {
+                      operatorUpdate.ssgEnv((op.ssgEnv&8)|(ssgEnv&7));
+                      operatorModified = true;
                     } rightClickable
                     ImGui::TableNextColumn();
                     ImGui::Text("%s",FM_NAME(FM_SSG));
@@ -1133,7 +1258,8 @@ void FurnaceGUI::drawInsEdit() {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-                    P(ImGui::SliderScalar("##WS",ImGuiDataType_U8,&op.ws,&_ZERO,&_SEVEN,(ins->type==DIV_INS_OPZ)?opzWaveforms[op.ws&7]:oplWaveforms[op.ws&7])); rightClickable
+                    sliderScalarWrapper("##WS", op.ws, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::ws, uint8_t(0), uint8_t(7), operatorModified,
+                      (ins->type==DIV_INS_OPZ)?opzWaveforms[op.ws&7]:oplWaveforms[op.ws&7]);
                     if (ins->type==DIV_INS_OPL && ImGui::IsItemHovered()) {
                       ImGui::SetTooltip("OPL2/3 only (last 4 waveforms are OPL3 only)");
                     }
@@ -1145,13 +1271,14 @@ void FurnaceGUI::drawInsEdit() {
                 }
 
                 if (ins->type==DIV_INS_OPLL || ins->type==DIV_INS_OPL) {
-                  if (ImGui::Checkbox(FM_NAME(FM_VIB),&vibOn)) { PARAMETER
-                    op.vib=vibOn;
-                  }
+                  checkboxWrapper(FM_NAME(FM_VIB), op.vib, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::vib, operatorModified);
                   ImGui::SameLine();
-                  if (ImGui::Checkbox(FM_NAME(FM_KSR),&ksrOn)) { PARAMETER
-                    op.ksr=ksrOn;
-                  }
+                  checkboxWrapper(FM_NAME(FM_KSR), op.ksr, operatorUpdate, &StructUpdate::Partial<DivInstrumentFM::Operator>::ksr, operatorModified);
+                }
+
+                if (operatorModified) {
+                  fmUpdate.op().at(operatorIndex) = std::make_shared<StructUpdate::Partial<DivInstrumentFM::Operator>>(std::move(operatorUpdate));
+                  fmModified = true;
                 }
 
                 ImGui::PopID();
@@ -1741,6 +1868,22 @@ void FurnaceGUI::drawInsEdit() {
           }
           ImGui::EndTabItem();
         }
+
+        // Combine all our update structs together, and issue an edit command for it
+        if (fmModified) {
+          instrumentUpdate.fm(std::make_shared<StructUpdate::Partial<DivInstrumentFM>>(std::move(fmUpdate)));
+          instrumentModified = true;
+        }
+
+        if (instrumentModified) {
+          doLocalEditCommand(std::make_unique<EditAction::CommandUpdateInstrument>(
+            EditAction::CommandUpdateInstrument::Data {
+              size_t(curIns),
+              instrumentUpdate,
+            }
+          ));
+        }
+
         ImGui::EndTabBar();
       }
     }

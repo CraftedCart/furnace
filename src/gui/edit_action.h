@@ -20,8 +20,10 @@
 #ifndef _GUI_EDIT_ACTION_H
 #define _GUI_EDIT_ACTION_H
 
-#include "net/serialize.h"
+#include "../serialize.h"
 #include "../engine/orders.h"
+#include "../engine/instrument.h"
+#include "../struct_update.h"
 
 // Forward declarations
 class FurnaceGUI;
@@ -56,7 +58,7 @@ class FurnaceGUI;
         packedData.msgpack_pack(msgpack_pk); \
       } \
       \
-      void msgpack_unpack(msgpack::object const& msgpack_o) { \
+      void msgpack_unpack(const msgpack::object& msgpack_o) { \
         PackedData packedData; \
         packedData.msgpack_unpack(msgpack_o); \
         \
@@ -168,6 +170,7 @@ namespace EditAction {
     ORDER_SWAP = 2,
     ORDER_SET = 3,
     PATTERN_SET_DATA = 4,
+    UPDATE_INSTRUMENT = 5,
   };
 
   /**
@@ -440,6 +443,26 @@ namespace EditAction {
     private:
       FURNACE_COMMAND_SIMPLE_IMPL_WITH_REVERT_DATA(CommandSetPatternData, Kind::PATTERN_SET_DATA);
       FURNACE_COMMAND_SIMPLE_CLONE(CommandSetPatternData);
+  };
+
+  /**
+   * @brief Update some instrument parameters
+   */
+  class CommandUpdateInstrument : public Command {
+    public:
+      struct Data {
+        size_t instrumentIndex;
+
+        StructUpdate::Partial<DivInstrument> partial;
+
+        FURNACE_NET_STRUCT_SERIALIZABLE(instrumentIndex, partial);
+      };
+
+      // TODO: Revert data
+
+    private:
+      FURNACE_COMMAND_SIMPLE_IMPL(CommandUpdateInstrument, Kind::UPDATE_INSTRUMENT);
+      FURNACE_COMMAND_SIMPLE_CLONE(CommandUpdateInstrument);
   };
 
 #if HAVE_NETWORKING

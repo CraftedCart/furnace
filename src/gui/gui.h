@@ -20,13 +20,13 @@
 #include "../engine/engine.h"
 #include "task_queue.h"
 #include "edit_action.h"
+#include "../serialize.h"
 
 #ifdef HAVE_NETWORKING
 #include "net/server.h"
 #include "net/client.h"
 #include "net/session_options.h"
 #endif
-#include "net/serialize.h" // Does not need to be in ifdef
 
 #include "imgui.h"
 #include "imgui_impl_sdl.h"

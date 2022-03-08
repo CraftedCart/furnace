@@ -225,6 +225,22 @@ namespace EditAction {
     gui->getEngine()->walkSong(gui->loopOrder, gui->loopRow, gui->loopEnd);
   }
 
+  bool CommandUpdateInstrument::exec(FurnaceGUI* gui, Origin origin) {
+    if (data.instrumentIndex >= gui->getEngine()->song.ins.size()) return false;
+
+    DivInstrument* instrument = gui->getEngine()->song.ins[data.instrumentIndex];
+
+    // TODO: Generate revertData
+    StructUpdate::update(*instrument, data.partial);
+    gui->getEngine()->notifyInsChange(data.instrumentIndex);
+
+    return true;
+  }
+
+  void CommandUpdateInstrument::revert(FurnaceGUI* gui, Origin origin) {
+    // TODO
+  }
+
 #if HAVE_NETWORKING
   struct UntypedPackedData {
     Kind kind;
@@ -260,6 +276,11 @@ namespace EditAction {
         }
         case Kind::PATTERN_SET_DATA: {
           std::unique_ptr<CommandSetPatternData> cmd = std::make_unique<CommandSetPatternData>();
+          obj.convert(cmd);
+          return cmd;
+        }
+        case Kind::UPDATE_INSTRUMENT: {
+          std::unique_ptr<CommandUpdateInstrument> cmd = std::make_unique<CommandUpdateInstrument>();
           obj.convert(cmd);
           return cmd;
         }

@@ -22,6 +22,9 @@
 #include "safeWriter.h"
 #include "dataErrors.h"
 #include "../ta-utils.h"
+#include "../struct_update.h"
+#include "../serialize.h"
+#include <refl.hpp>
 
 // NOTICE!
 // before adding new instrument types to this struct, please ask me first.
@@ -52,6 +55,8 @@ enum DivInstrumentType {
   DIV_INS_SWAN=22,
   DIV_INS_MIKEY=23,
 };
+
+FURNACE_NET_ENUM_SERIALIZABLE(DivInstrumentType);
 
 // FM operator structure:
 // - OPN:
@@ -142,7 +147,45 @@ struct DivInstrumentFM {
     op[3].mult=1;
     op[3].dt=0;
   }
+
+  DivInstrumentFM(const DivInstrumentFM& other) = default;
+  DivInstrumentFM(DivInstrumentFM&& other) = default;
+  DivInstrumentFM& operator=(const DivInstrumentFM& other) = default;
+  DivInstrumentFM& operator=(DivInstrumentFM&& other) = default;
 };
+
+REFL_TYPE(DivInstrumentFM::Operator)
+  REFL_FIELD(am)
+  REFL_FIELD(ar)
+  REFL_FIELD(dr)
+  REFL_FIELD(mult)
+  REFL_FIELD(rr)
+  REFL_FIELD(sl)
+  REFL_FIELD(tl)
+  REFL_FIELD(dt2)
+  REFL_FIELD(rs)
+  REFL_FIELD(dt)
+  REFL_FIELD(d2r)
+  REFL_FIELD(ssgEnv)
+  REFL_FIELD(dam)
+  REFL_FIELD(dvb)
+  REFL_FIELD(egt)
+  REFL_FIELD(ksl)
+  REFL_FIELD(sus)
+  REFL_FIELD(vib)
+  REFL_FIELD(ws)
+  REFL_FIELD(ksr)
+REFL_END
+
+REFL_TYPE(DivInstrumentFM)
+  REFL_FIELD(alg)
+  REFL_FIELD(fb)
+  REFL_FIELD(fms)
+  REFL_FIELD(ams)
+  REFL_FIELD(ops)
+  REFL_FIELD(opllPreset)
+  REFL_FIELD(op, StructUpdate::Nested())
+REFL_END
 
 struct DivInstrumentSTD {
   int volMacro[256];
@@ -394,4 +437,14 @@ struct DivInstrument {
     type(DIV_INS_STD) {
   }
 };
+
+REFL_TYPE(DivInstrument)
+  REFL_FIELD(name)
+  REFL_FIELD(mode)
+  REFL_FIELD(type)
+
+  REFL_FIELD(fm, StructUpdate::Nested())
+  // TODO: std, gb, c64, amiga
+REFL_END
+
 #endif

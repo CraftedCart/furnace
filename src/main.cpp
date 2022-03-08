@@ -153,6 +153,7 @@ bool pVersion(String) {
   printf("- libzmq by ZeroMQ Team (LGPLv3)\n");
   printf("- cppzmq by ZeroMQ Team (MIT)\n");
   printf("- msgpack for C++ by msgpack Team (Boost Software License)\n");
+  printf("- refl-cpp by veselink1 (MIT)\n");
   return false;
 }
 

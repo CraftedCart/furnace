@@ -204,9 +204,9 @@ else()
   message(STATUS "Building without RtMidi")
 endif()
 
-if (USE_NETWORKING AND BUILD_GUI)
-  include(FetchContent)
+include(FetchContent)
 
+if (USE_NETWORKING AND BUILD_GUI)
   set(ZMQ_BUILD_TESTS OFF CACHE BOOL "")
   set(WITH_PERF_TOOL OFF CACHE BOOL "")
   FetchContent_Declare(zmq
@@ -236,6 +236,13 @@ if (USE_NETWORKING AND BUILD_GUI)
 
   list(APPEND DEPENDENCIES_DEFINES HAVE_NETWORKING)
 endif()
+
+FetchContent_Declare(refl-cpp
+  GIT_REPOSITORY https://github.com/veselink1/refl-cpp.git
+  GIT_TAG v0.12.3
+)
+FetchContent_MakeAvailable(refl-cpp)
+list(APPEND DEPENDENCIES_LIBRARIES refl-cpp::refl-cpp)
 
 set(ENGINE_SOURCES
 src/log.cpp
